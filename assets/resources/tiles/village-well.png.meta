@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "27d0f2c4-f0de-4eec-b37a-125ac0bb5827",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "27d0f2c4-f0de-4eec-b37a-125ac0bb5827@6c48a",
+      "displayName": "village-well",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "imageUuidOrDatabaseUri": "27d0f2c4-f0de-4eec-b37a-125ac0bb5827",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "27d0f2c4-f0de-4eec-b37a-125ac0bb5827@f9941",
+      "displayName": "village-well",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 10,
+        "trimY": 10,
+        "width": 199,
+        "height": 203,
+        "rawWidth": 219,
+        "rawHeight": 223,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [
+            -99.5,
+            -101.5,
+            0,
+            99.5,
+            -101.5,
+            0,
+            -99.5,
+            101.5,
+            0,
+            99.5,
+            101.5,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            10,
+            213,
+            209,
+            213,
+            10,
+            10,
+            209,
+            10
+          ],
+          "nuv": [
+            0.045662100456621,
+            0.04484304932735426,
+            0.954337899543379,
+            0.04484304932735426,
+            0.045662100456621,
+            0.9551569506726457,
+            0.954337899543379,
+            0.9551569506726457
+          ],
+          "minPos": [
+            -99.5,
+            -101.5,
+            0
+          ],
+          "maxPos": [
+            99.5,
+            101.5,
+            0
+          ]
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "27d0f2c4-f0de-4eec-b37a-125ac0bb5827@6c48a",
+        "atlasUuid": "",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "27d0f2c4-f0de-4eec-b37a-125ac0bb5827@6c48a"
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "37710af5-f124-4de3-823b-62fe88d509cf",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "37710af5-f124-4de3-823b-62fe88d509cf@6c48a",
+      "displayName": "canal-bridge-wide-v2",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "imageUuidOrDatabaseUri": "37710af5-f124-4de3-823b-62fe88d509cf",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "37710af5-f124-4de3-823b-62fe88d509cf@f9941",
+      "displayName": "canal-bridge-wide-v2",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 10,
+        "trimY": 10,
+        "width": 274,
+        "height": 235,
+        "rawWidth": 294,
+        "rawHeight": 255,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [
+            -137,
+            -117.5,
+            0,
+            137,
+            -117.5,
+            0,
+            -137,
+            117.5,
+            0,
+            137,
+            117.5,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            10,
+            245,
+            284,
+            245,
+            10,
+            10,
+            284,
+            10
+          ],
+          "nuv": [
+            0.034013605442176874,
+            0.0392156862745098,
+            0.9659863945578231,
+            0.0392156862745098,
+            0.034013605442176874,
+            0.9607843137254902,
+            0.9659863945578231,
+            0.9607843137254902
+          ],
+          "minPos": [
+            -137,
+            -117.5,
+            0
+          ],
+          "maxPos": [
+            137,
+            117.5,
+            0
+          ]
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "37710af5-f124-4de3-823b-62fe88d509cf@6c48a",
+        "atlasUuid": "",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "37710af5-f124-4de3-823b-62fe88d509cf@6c48a"
+  }
+}

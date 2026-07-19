@@ -1,0 +1,10 @@
+{
+  "name": "RPG",
+  "uuid": "f49b01ca-eb02-4f4c-8fc4-34ccc4d78598",
+  "version": "3.8.8",
+  "private": true,
+  "type": "module",
+  "creator": {
+    "version": "3.8.8"
+  }
+}

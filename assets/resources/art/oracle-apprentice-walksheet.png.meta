@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "b041aad6-9528-4422-b615-3bff8da3612d",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "b041aad6-9528-4422-b615-3bff8da3612d@6c48a",
+      "displayName": "oracle-apprentice-walksheet",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "imageUuidOrDatabaseUri": "b041aad6-9528-4422-b615-3bff8da3612d",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "b041aad6-9528-4422-b615-3bff8da3612d@f9941",
+      "displayName": "oracle-apprentice-walksheet",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 8.5,
+        "trimX": 126,
+        "trimY": 35,
+        "width": 1002,
+        "height": 1167,
+        "rawWidth": 1254,
+        "rawHeight": 1254,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [
+            -501,
+            -583.5,
+            0,
+            501,
+            -583.5,
+            0,
+            -501,
+            583.5,
+            0,
+            501,
+            583.5,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            126,
+            1219,
+            1128,
+            1219,
+            126,
+            52,
+            1128,
+            52
+          ],
+          "nuv": [
+            0.10047846889952153,
+            0.04146730462519936,
+            0.8995215311004785,
+            0.04146730462519936,
+            0.10047846889952153,
+            0.9720893141945773,
+            0.8995215311004785,
+            0.9720893141945773
+          ],
+          "minPos": [
+            -501,
+            -583.5,
+            0
+          ],
+          "maxPos": [
+            501,
+            583.5,
+            0
+          ]
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "b041aad6-9528-4422-b615-3bff8da3612d@6c48a",
+        "atlasUuid": "",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "b041aad6-9528-4422-b615-3bff8da3612d@6c48a"
+  }
+}

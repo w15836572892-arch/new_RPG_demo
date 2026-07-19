@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "9629c2c5-535d-4be7-a3c8-c3746711870a",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "9629c2c5-535d-4be7-a3c8-c3746711870a@6c48a",
+      "displayName": "market-stall",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "imageUuidOrDatabaseUri": "9629c2c5-535d-4be7-a3c8-c3746711870a",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "9629c2c5-535d-4be7-a3c8-c3746711870a@f9941",
+      "displayName": "market-stall",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 10,
+        "trimY": 10,
+        "width": 228,
+        "height": 258,
+        "rawWidth": 248,
+        "rawHeight": 278,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [
+            -114,
+            -129,
+            0,
+            114,
+            -129,
+            0,
+            -114,
+            129,
+            0,
+            114,
+            129,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            10,
+            268,
+            238,
+            268,
+            10,
+            10,
+            238,
+            10
+          ],
+          "nuv": [
+            0.04032258064516129,
+            0.03597122302158273,
+            0.9596774193548387,
+            0.03597122302158273,
+            0.04032258064516129,
+            0.9640287769784173,
+            0.9596774193548387,
+            0.9640287769784173
+          ],
+          "minPos": [
+            -114,
+            -129,
+            0
+          ],
+          "maxPos": [
+            114,
+            129,
+            0
+          ]
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "9629c2c5-535d-4be7-a3c8-c3746711870a@6c48a",
+        "atlasUuid": "",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "9629c2c5-535d-4be7-a3c8-c3746711870a@6c48a"
+  }
+}
