@@ -42,6 +42,8 @@ type Wildlife = {
   node: Node; baseX: number; baseY: number; phase: number; speed: number; rangeX: number; rangeY: number; lastX: number;
   motion: WildlifeMotion; wake?: Node; bodyParts?: Node[]; wingParts?: Node[]; legParts?: Node[];
 };
+type WetlandPlantKind = 'reed' | 'grass';
+type WetlandPlant = { root: Node; sprite: Sprite; variant: number };
 type CropPlant = { root: Node; visual: Node; sprite: Sprite; frames: Array<SpriteFrame | null>; phase: number; x: number; y: number; bend: number; squash: number };
 type TorchFlame = {
   root: Node; flame: Graphics; glow: Graphics; embers: Graphics; phase: number; intensity: number; sheltered?: boolean;
@@ -55,9 +57,10 @@ type ExcavationRegion = 'river' | 'field' | 'lake' | 'royal';
 type ExcavationReward = {
   kind: 'oracle' | 'ink'; quality: OracleQuality | null; cardId: string | null; amount: number;
 };
+type ExcavationVisualState = 'idle' | 'dug';
 type ExcavationSite = {
-  id: string; root: Node; mound: Graphics; glow: Graphics; x: number; y: number;
-  region: ExcavationRegion; phase: number; active: boolean; respawnTimer: number; holeTimer: number;
+  id: string; root: Node; sprite: Sprite; glow: Graphics; x: number; y: number;
+  region: ExcavationRegion; active: boolean; respawnTimer: number; holeTimer: number;
   awaitingStudy: boolean; reward: ExcavationReward;
 };
 type PendingExcavation = { site: ExcavationSite; timer: number; rewarded: boolean };
@@ -125,6 +128,39 @@ export class YinXuCity extends Component {
   private readonly playerRadius = 9;
   private readonly actorRadius = 23;
   private readonly moveSpeed = 158;
+  private readonly excavationNodeWidth = 44;
+  private readonly excavationNodeHeight = 32;
+  private readonly EXCAVATION_VISUAL_WIDTH = 112;
+  private readonly EXCAVATION_VISUAL_HEIGHTS: Record<ExcavationVisualState, number> = {
+    // Preserve each trimmed PNG's exact visible-content aspect ratio.
+    idle: 112 * 384 / 657,
+    dug: 112 * 468 / 746,
+  };
+  private readonly EXCAVATION_VISUAL_GROUND_Y = -12;
+  private readonly excavationFramePaths: Record<ExcavationVisualState, string> = {
+    idle: 'art/environment/excavation/excavation_mound_idle/spriteFrame',
+    dug: 'art/environment/excavation/excavation_mound_dug/spriteFrame',
+  };
+  private readonly wetlandPlantFramePaths = [
+    'art/environment/wetland/reeds_a/spriteFrame',
+    'art/environment/wetland/reeds_b/spriteFrame',
+    'art/environment/wetland/reeds_c/spriteFrame',
+    'art/environment/wetland/wet_grass_a/spriteFrame',
+    'art/environment/wetland/wet_grass_b/spriteFrame',
+  ];
+  private readonly wetlandReedVariantCount = 3;
+  private readonly wetlandPlantBlankPercent = 22;
+  private readonly wetlandReedPercent = 35;
+  private readonly wetlandPlantCanvasSizes: Record<WetlandPlantKind, [number, number]> = {
+    reed: [100, 100],
+    grass: [92, 52],
+  };
+  // Both imported sprite canvases leave four transparent pixels below their
+  // roots. These offsets put that shared visible baseline at root-local -24.
+  private readonly wetlandPlantVisualOffsetY: Record<WetlandPlantKind, number> = {
+    reed: 22,
+    grass: -2,
+  };
   private readonly riverRegion = { left: -6000, right: -3800, bottom: -3000, top: -250 };
   private readonly lakeRegion = { left: -1600, right: -480, bottom: -1980, top: -1120 };
   private readonly fieldRegion = { left: 200, right: 3000, bottom: -2200, top: -400 };
@@ -157,6 +193,10 @@ export class YinXuCity extends Component {
   private waterSegments: WaterSegment[] = [];
   private waterCrossings: RectObstacle[] = [];
   private sways: SwayObject[] = [];
+  private wetlandPlants: WetlandPlant[] = [];
+  private wetlandPlantFrames: Array<SpriteFrame | null> = [null, null, null, null, null];
+  private wetlandPlantFramesRequested = false;
+  private previousWetlandPlantVariant = -1;
   private ripples: Ripple[] = [];
   private canalFlowMarks: CanalFlowMark[] = [];
   private depthTrees: DepthTree[] = [];
@@ -171,6 +211,8 @@ export class YinXuCity extends Component {
   private horseCarts: HorseCart[] = [];
   private frameCache = new Map<string, SpriteFrame>();
   private frameWaiters = new Map<string, Array<(frame: SpriteFrame) => void>>();
+  private excavationFrames: Record<ExcavationVisualState, SpriteFrame | null> = { idle: null, dug: null };
+  private excavationFramesRequested = false;
   private playerFrames: Record<Facing, Array<SpriteFrame | null>> = {
     down: [null, null, null, null],
     left: [null, null, null, null],
@@ -621,6 +663,8 @@ export class YinXuCity extends Component {
     this.waterSegments = [];
     this.waterCrossings = [];
     this.sways = [];
+    this.wetlandPlants = [];
+    this.previousWetlandPlantVariant = -1;
     this.ripples = [];
     this.canalFlowMarks = [];
     this.depthTrees = [];
@@ -2218,6 +2262,7 @@ export class YinXuCity extends Component {
   }
 
   private createExcavationSites() {
+    this.loadExcavationSpriteFrames();
     const layouts: Record<ExcavationRegion, Array<[number, number]>> = {
       river: [
         [-5940,-250],[-5590,-255],[-5210,-430],[-4710,-380],[-4090,-620],
@@ -2242,15 +2287,23 @@ export class YinXuCity extends Component {
         const root = new Node(`ExcavationSite-${region}-${index}`);
         root.parent = this.world;
         root.setPosition(point.x, point.y, 21);
-        root.addComponent(UITransform).setContentSize(132, 104);
+        root.addComponent(UITransform).setContentSize(this.excavationNodeWidth, this.excavationNodeHeight);
+        const spriteNode = new Node('ExcavationMoundSprite');
+        const initialVisualHeight = this.EXCAVATION_VISUAL_HEIGHTS.idle;
+        spriteNode.parent = root;
+        spriteNode.setPosition(0, this.EXCAVATION_VISUAL_GROUND_Y + initialVisualHeight / 2, 0);
+        spriteNode.addComponent(UITransform).setContentSize(this.EXCAVATION_VISUAL_WIDTH, initialVisualHeight);
+        const sprite = spriteNode.addComponent(Sprite);
+        sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        sprite.trim = true;
+        sprite.color = Color.WHITE;
         const glowNode = new Node('ExcavationGlow');
         glowNode.parent = root; glowNode.setPosition(0, 0, -1);
-        glowNode.addComponent(UITransform).setContentSize(144, 108);
+        glowNode.addComponent(UITransform).setContentSize(this.excavationNodeWidth, this.excavationNodeHeight);
         const glow = glowNode.addComponent(Graphics);
-        const mound = root.addComponent(Graphics);
         const site: ExcavationSite = {
-          id: `${region}-${index}`, root, mound, glow, x: point.x, y: point.y,
-          region, phase: index * .71 + (region === 'river' ? .2 : region === 'field' ? 1.4 : region === 'lake' ? 2.6 : 3.8),
+          id: `${region}-${index}`, root, sprite, glow, x: point.x, y: point.y,
+          region,
           active: true, respawnTimer: 0, holeTimer: 0, awaitingStudy: false,
           reward: this.rollExcavationReward(region),
         };
@@ -2381,106 +2434,57 @@ export class YinXuCity extends Component {
   }
 
   private redrawExcavationSite(site: ExcavationSite) {
-    site.mound.clear(); site.glow.clear();
+    site.glow.clear();
+    site.glow.node.setScale(1, 1, 1);
+    site.glow.node.setRotationFromEuler(0, 0, 0);
     site.root.active = true;
     if (!site.active) {
       if (site.holeTimer <= 0) {
         site.root.active = false;
         return;
       }
-      // The empty pit sits below the actor layer and has a broken rim rather
-      // than reading as a flat dark sticker.
-      site.mound.fillColor = new Color(51, 37, 29, 105); site.mound.ellipse(0, -8, 45, 17); site.mound.fill();
-      site.mound.fillColor = new Color(72, 45, 30); site.mound.ellipse(0, -3, 37, 14); site.mound.fill();
-      site.mound.fillColor = new Color(39, 31, 27); site.mound.ellipse(0, 0, 29, 10); site.mound.fill();
-      site.mound.strokeColor = new Color(155, 104, 57, 210); site.mound.lineWidth = 5;
-      site.mound.moveTo(-43, 1); site.mound.lineTo(-31, 10); site.mound.lineTo(-13, 12);
-      site.mound.moveTo(12, 12); site.mound.lineTo(31, 9); site.mound.lineTo(43, 1); site.mound.stroke();
-      site.mound.fillColor = new Color(124, 79, 42);
-      site.mound.ellipse(-39, 9, 9, 4); site.mound.ellipse(37, 7, 10, 4); site.mound.ellipse(-16, 15, 7, 3); site.mound.fill();
+      this.applyExcavationVisualState(site, 'dug');
       return;
     }
-    const quality = site.reward.quality;
-    const color = quality === 'gold' ? new Color(255, 210, 79)
-      : quality === 'red' ? new Color(231, 76, 58)
-        : quality === 'blue' ? new Color(77, 171, 255) : new Color(212, 173, 103);
+    this.applyExcavationVisualState(site, 'idle');
+    this.drawExcavationInteractionHint(site);
+  }
 
-    // Quality light lives inside the fissures. The glow network follows the
-    // raised top plane and leaks down the front edge, matching the approved
-    // blue/red/gold excavation-mound concept instead of a UI ring.
-    site.glow.strokeColor = new Color(color.r, color.g, color.b, quality ? 220 : 70);
-    site.glow.lineWidth = quality === 'gold' ? 4.5 : quality ? 3.5 : 1.8;
-    const glowVeins: Array<Array<[number, number]>> = [
-      [[-52,10],[-37,18],[-21,13],[-10,25],[-1,15]],
-      [[-1,15],[13,23],[27,15],[46,20],[57,8]],
-      [[-33,-2],[-17,7],[-1,1],[15,8],[31,0]],
-      [[-18,-15],[-7,-5],[4,-12],[16,-4],[29,-14]],
-    ];
-    glowVeins.forEach(points => {
-      site.glow.moveTo(points[0][0], points[0][1]);
-      points.slice(1).forEach(point => site.glow.lineTo(point[0], point[1]));
+  private applyExcavationVisualState(site: ExcavationSite, state: ExcavationVisualState) {
+    const visualHeight = this.EXCAVATION_VISUAL_HEIGHTS[state];
+    const transform = site.sprite.node.getComponent(UITransform);
+    transform?.setContentSize(this.EXCAVATION_VISUAL_WIDTH, visualHeight);
+    site.sprite.node.setPosition(0, this.EXCAVATION_VISUAL_GROUND_Y + visualHeight / 2, 0);
+    site.sprite.spriteFrame = this.excavationFrames[state];
+  }
+
+  private loadExcavationSpriteFrames() {
+    if (this.excavationFramesRequested) return;
+    this.excavationFramesRequested = true;
+    (Object.keys(this.excavationFramePaths) as ExcavationVisualState[]).forEach(state => {
+      const path = this.excavationFramePaths[state];
+      resources.load(path, SpriteFrame, (error, frame) => {
+        if (error || !frame) {
+          console.error(`[YinXuCity] excavation ${state} SpriteFrame failed to load: ${path}`, error);
+          return;
+        }
+        frame.texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
+        this.excavationFrames[state] = frame;
+        this.excavationSites.forEach(site => {
+          if (site.root.isValid) this.redrawExcavationSite(site);
+        });
+      });
     });
-    site.glow.stroke();
-    site.glow.fillColor = new Color(color.r, color.g, color.b, quality ? 110 : 25);
-    [[-51,10],[-20,13],[-1,15],[27,15],[56,8],[-18,-15],[29,-14]].forEach(point => site.glow.circle(point[0], point[1], quality ? 3 : 1.5));
-    site.glow.fill();
+  }
 
-    // Wide contact shadow and three stepped earth bands make the object a
-    // raised excavation patch, not a low oval badge.
-    site.mound.fillColor = new Color(45, 34, 28, 145); site.mound.ellipse(0, -29, 62, 16); site.mound.fill();
-    site.mound.fillColor = new Color(76, 51, 36);
-    site.mound.moveTo(-61,-24); site.mound.lineTo(-57,10); site.mound.lineTo(-45,27); site.mound.lineTo(-22,33);
-    site.mound.lineTo(-5,39); site.mound.lineTo(18,34); site.mound.lineTo(43,30); site.mound.lineTo(59,13);
-    site.mound.lineTo(62,-20); site.mound.lineTo(49,-34); site.mound.lineTo(-45,-36); site.mound.close(); site.mound.fill();
-    const soil = site.region === 'lake' || site.region === 'river' ? new Color(119, 86, 52) : new Color(132, 84, 46);
-    site.mound.fillColor = soil;
-    site.mound.moveTo(-59,-17); site.mound.lineTo(-54,13); site.mound.lineTo(-41,30); site.mound.lineTo(-18,35);
-    site.mound.lineTo(-4,41); site.mound.lineTo(17,36); site.mound.lineTo(41,32); site.mound.lineTo(57,12);
-    site.mound.lineTo(56,-13); site.mound.lineTo(43,-25); site.mound.lineTo(-44,-27); site.mound.close(); site.mound.fill();
-    site.mound.fillColor = new Color(164, 112, 62);
-    site.mound.moveTo(-52,0); site.mound.lineTo(-43,24); site.mound.lineTo(-19,29); site.mound.lineTo(-5,35);
-    site.mound.lineTo(14,30); site.mound.lineTo(37,27); site.mound.lineTo(51,9); site.mound.lineTo(40,-2);
-    site.mound.lineTo(-38,-8); site.mound.close(); site.mound.fill();
-
-    const shift = Math.sin(site.phase) * 3;
-    const clods: Array<[number,number,number,number]> = [
-      [-48+shift,8,9,6],[-35,25,8,6],[-19,1,7,5],[-4,32,8,5],[15,4,9,6],[33,25,8,5],[48-shift,8,7,6],[-30,-16,8,5],[28,-15,7,5],
-    ];
-    clods.forEach((clod, index) => {
-      site.mound.fillColor = index % 3 === 0 ? new Color(94, 66, 45) : index % 3 === 1 ? new Color(187, 133, 72) : new Color(139, 91, 51);
-      site.mound.ellipse(clod[0],clod[1],clod[2],clod[3]); site.mound.fill();
-      if (index % 2 === 0) {
-        site.mound.strokeColor = new Color(70, 50, 38, 150); site.mound.lineWidth = 1.4;
-        site.mound.moveTo(clod[0]-clod[2]*.5,clod[1]); site.mound.lineTo(clod[0]+clod[2]*.45,clod[1]+1); site.mound.stroke();
-      }
-    });
-    site.mound.fillColor = new Color(109, 105, 88);
-    site.mound.ellipse(-50,-13,6,4); site.mound.ellipse(47,-11,7,4); site.mound.ellipse(35,11,5,3); site.mound.fill();
-    site.mound.fillColor = new Color(182, 164, 120);
-    site.mound.ellipse(-51,-12,3,2); site.mound.ellipse(46,-10,3,2); site.mound.fill();
-
-    // Sparse edge grass is part of the soil silhouette, with no white ring or
-    // icon-like marker around the interaction point.
-    site.mound.strokeColor = new Color(66, 91, 48); site.mound.lineWidth = 3;
-    [[-58,-17,-65,12],[-53,-18,-47,8],[49,-18,55,13],[55,-16,48,6],[-39,24,-42,43],[40,24,44,44]].forEach(stem => {
-      site.mound.moveTo(stem[0],stem[1]); site.mound.lineTo(stem[2],stem[3]);
-    });
-    site.mound.stroke();
-    if (quality) {
-      // A partially exposed shoulder-blade shard is embedded into the top
-      // plane. Its irregular holes never form a face-like arrangement.
-      site.mound.fillColor = new Color(218, 192, 143);
-      site.mound.moveTo(-28,18); site.mound.lineTo(-18,34); site.mound.lineTo(2,38); site.mound.lineTo(23,31);
-      site.mound.lineTo(30,18); site.mound.lineTo(17,8); site.mound.lineTo(-8,10); site.mound.close(); site.mound.fill();
-      site.mound.strokeColor = new Color(82, 57, 42); site.mound.lineWidth = 2.3;
-      site.mound.moveTo(-28,18); site.mound.lineTo(-18,34); site.mound.lineTo(2,38); site.mound.lineTo(23,31);
-      site.mound.lineTo(30,18); site.mound.lineTo(17,8); site.mound.lineTo(-8,10); site.mound.close(); site.mound.stroke();
-      site.mound.fillColor = new Color(91, 59, 42);
-      site.mound.circle(-14,24,2.4); site.mound.circle(16,27,2); site.mound.circle(8,14,1.7); site.mound.fill();
-      site.mound.strokeColor = new Color(137, 94, 55, 180); site.mound.lineWidth = 1.5;
-      site.mound.moveTo(-5,35); site.mound.lineTo(1,25); site.mound.lineTo(-2,17);
-      site.mound.moveTo(19,29); site.mound.lineTo(12,22); site.mound.lineTo(17,13); site.mound.stroke();
-    }
+  private drawExcavationInteractionHint(site: ExcavationSite) {
+    const hint = site.glow;
+    const alpha = site.awaitingStudy ? 58 : 30;
+    hint.strokeColor = new Color(151, 119, 70, alpha);
+    hint.lineWidth = .75;
+    hint.moveTo(-12, -10); hint.lineTo(-4, -12);
+    hint.moveTo(5, -12); hint.lineTo(12, -9);
+    hint.stroke();
   }
 
   private nearestActiveExcavationSite() {
@@ -2613,9 +2617,8 @@ export class YinXuCity extends Component {
         }
         continue;
       }
-      const pulse = .94 + (Math.sin(this.elapsed * 2.2 + site.phase) + 1) * .07;
-      site.glow.node.setScale(pulse, .92 + (pulse - .94) * .65, 1);
-      site.glow.node.setRotationFromEuler(0, 0, Math.sin(this.elapsed * .7 + site.phase) * 2.2);
+      // The idle marker is intentionally static. Pulsing scale and rotation
+      // made the old excavation disk read like an active mechanism.
     }
     const pending = this.pendingExcavation;
     if (pending) {
@@ -2772,33 +2775,76 @@ export class YinXuCity extends Component {
   }
 
   private createReeds(x: number, y: number) {
-    const n = new Node('DynamicRiverReeds'); n.parent = this.world; n.setPosition(x, y, 12); n.addComponent(UITransform).setContentSize(78, 104);
-    const g = n.addComponent(Graphics);
-    g.fillColor = new Color(34, 72, 62, 145); g.ellipse(0, -23, 29, 9); g.fill();
+    this.loadWetlandPlantSpriteFrames();
+    const seed = this.wetlandReedSeed(x, y);
+    if (((seed >>> 4) % 100) < this.wetlandPlantBlankPercent) return;
 
-    const stems = [-30, -23, -15, -7, 2, 11, 20, 28];
-    g.strokeColor = new Color(35, 82, 55); g.lineWidth = 5;
-    stems.forEach((sx, index) => {
-      const tipX = sx + Math.sin(index * 1.71) * 7;
-      const tipY = 30 + (index % 3) * 10;
-      g.moveTo(sx, -24); g.quadraticCurveTo(sx - 5, 7, tipX, tipY);
-    });
-    g.stroke();
+    const kind: WetlandPlantKind = ((seed >>> 24) % 100) < this.wetlandReedPercent ? 'reed' : 'grass';
+    const firstVariant = kind === 'reed' ? 0 : this.wetlandReedVariantCount;
+    const variantCount = kind === 'reed' ? this.wetlandReedVariantCount : 2;
+    let variant = firstVariant + (seed % variantCount);
+    // Generation order is fixed, so rotating a repeated choice remains fully
+    // deterministic while preventing obvious runs of the same silhouette.
+    if (variant === this.previousWetlandPlantVariant) {
+      variant = firstVariant + ((variant - firstVariant + 1) % variantCount);
+    }
+    this.previousWetlandPlantVariant = variant;
 
-    g.strokeColor = new Color(93, 139, 67); g.lineWidth = 3;
-    stems.forEach((sx, index) => {
-      const direction = index % 2 === 0 ? -1 : 1;
-      g.moveTo(sx, -8 + index % 3 * 5);
-      g.quadraticCurveTo(sx + direction * 10, 8, sx + direction * (15 + index % 4 * 3), 18 + index % 2 * 8);
-    });
-    g.stroke();
+    const flipped = ((seed >>> 3) & 1) === 1;
+    const jitterX = ((seed >>> 20) % 15) - 7;
+    const jitterY = ((seed >>> 28) % 3) - 1;
+    const [canvasWidth, canvasHeight] = this.wetlandPlantCanvasSizes[kind];
+    const n = new Node(kind === 'reed' ? 'DynamicRiverReeds' : 'DynamicWetlandGrass');
+    n.parent = this.world;
+    n.setPosition(x + jitterX, y + jitterY, 12);
+    n.addComponent(UITransform).setContentSize(canvasWidth, canvasHeight);
 
-    [-23, -7, 11, 28].forEach((sx, index) => {
-      const tipY = 39 + index % 3 * 9;
-      g.fillColor = index % 2 === 0 ? new Color(143, 101, 47) : new Color(176, 126, 54);
-      g.ellipse(sx + Math.sin(index * 2.1) * 6, tipY, 4, 10); g.fill();
+    const visual = new Node(kind === 'reed' ? 'WetlandReedSprite' : 'WetlandGrassSprite');
+    visual.parent = n;
+    visual.setPosition(0, this.wetlandPlantVisualOffsetY[kind], 0);
+    visual.setScale(flipped ? -1 : 1, 1, 1);
+    visual.addComponent(UITransform).setContentSize(canvasWidth, canvasHeight);
+    const sprite = visual.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    sprite.trim = false;
+    sprite.color = Color.WHITE;
+    sprite.spriteFrame = this.wetlandPlantFrames[variant];
+
+    this.wetlandPlants.push({ root: n, sprite, variant });
+    this.depthOccluders.push({
+      node: n,
+      footY: y + jitterY - 24,
+      halfWidth: canvasWidth * (kind === 'reed' ? .42 : .46),
+      coverHeight: kind === 'reed' ? 92 : 46,
+      baseZ: 12,
+      foregroundZ: 98,
     });
-    this.sways.push({ node: n, phase: (x + y) * .014, amplitude: 3.8, speed: 1.03 });
+  }
+
+  private wetlandReedSeed(x: number, y: number) {
+    let hash = Math.imul(Math.round(x), 73856093) ^ Math.imul(Math.round(y), 19349663) ^ 0x51ed270b;
+    hash ^= hash >>> 16;
+    hash = Math.imul(hash, 0x7feb352d);
+    hash ^= hash >>> 15;
+    return hash >>> 0;
+  }
+
+  private loadWetlandPlantSpriteFrames() {
+    if (this.wetlandPlantFramesRequested) return;
+    this.wetlandPlantFramesRequested = true;
+    this.wetlandPlantFramePaths.forEach((path, variant) => {
+      resources.load(path, SpriteFrame, (error, frame) => {
+        if (error || !frame) {
+          console.error(`[YinXuCity] wetland plant SpriteFrame failed to load: ${path}`, error);
+          return;
+        }
+        frame.texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
+        this.wetlandPlantFrames[variant] = frame;
+        this.wetlandPlants.forEach(plant => {
+          if (plant.variant === variant && plant.root.isValid && plant.sprite.isValid) plant.sprite.spriteFrame = frame;
+        });
+      });
+    });
   }
 
   private createCropPlant(x: number, y: number, index: number) {
