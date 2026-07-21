@@ -200,12 +200,17 @@ export class LearningHall extends Component {
     const header = this.graphics(root, 'HallHeader', 0, 286, 1150, 104, 2);
     header.fillColor = new Color(60, 57, 101, 240); header.roundRect(-575, -52, 1150, 104, 22); header.fill();
     header.strokeColor = new Color(219, 180, 108, 176); header.lineWidth = 2; header.roundRect(-575, -52, 1150, 104, 22); header.stroke();
+    const profile = this.callbacks!.getProfile();
     const avatarFrame = new Node('HallAvatarFrame'); avatarFrame.parent = root; avatarFrame.setPosition(-505, 286, 4); avatarFrame.addComponent(UITransform).setContentSize(74, 74);
     const avatarFallback = avatarFrame.addComponent(Graphics); avatarFallback.fillColor = new Color(232, 190, 118); avatarFallback.circle(0, 0, 35); avatarFallback.fill();
     const avatar = new Node('HallAvatar'); avatar.parent = root; avatar.setPosition(-505, 286, 5); avatar.addComponent(UITransform).setContentSize(64, 64);
     const avatarSprite = avatar.addComponent(Sprite); avatarSprite.sizeMode = Sprite.SizeMode.CUSTOM;
-    this.loadSprite('characters/oracle-apprentice/down-0/spriteFrame', avatar, avatarSprite, true);
-    this.label(root, 'HallPlayerName', '甲骨小学生', -325, 304, 220, 34, 22, new Color(255, 239, 201), 'left', 6);
+    if (profile.avatarUrl) {
+      this.loadSpriteFrameFromDataUrl(profile.avatarUrl, avatarSprite);
+    } else {
+      this.loadSprite('characters/oracle-apprentice/down-0/spriteFrame', avatar, avatarSprite, true);
+    }
+    this.label(root, 'HallPlayerName', profile.playerName || '少年卜官', -325, 304, 220, 34, 22, new Color(255, 239, 201), 'left', 6);
     this.label(root, 'HallPlayerStatus', subtitle, -300, 272, 280, 28, 13, new Color(214, 206, 226), 'left', 6);
     this.label(root, 'HallTitle', title, 190, 291, 530, 44, 29, new Color(255, 236, 185), 'center', 6);
     if (back) this.button(root, 'HallBack', '返回大厅', 480, 286, 150, 48, false);
