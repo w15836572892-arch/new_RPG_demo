@@ -173,7 +173,10 @@ export class LearningHall extends Component {
       bgSprite.sizeMode = Sprite.SizeMode.CUSTOM;
       const key = night ? 'art/hall_bg/dark_bg/spriteFrame' : 'art/hall_bg/hall_bg/spriteFrame';
       this.loadSprite(key, bgNode, bgSprite, true);
-      this.label(root, 'HallPattern', '甲  骨  文  ·  殷  商  探  索', 0, -height / 2 + 32, 920, 28, 14, night ? new Color(244, 205, 132, 120) : new Color(90, 70, 50, 120));
+      // 大厅主页去掉底部装饰文字，弹窗/子页面保留
+      if (this.mode !== 'home') {
+        this.label(root, 'HallPattern', '甲  骨  文  ·  殷  商  探  索', 0, -height / 2 + 32, 920, 28, 14, night ? new Color(244, 205, 132, 120) : new Color(90, 70, 50, 120));
+      }
       return;
     }
     // Sub-pages: keep the original deep-night sky untouched.
