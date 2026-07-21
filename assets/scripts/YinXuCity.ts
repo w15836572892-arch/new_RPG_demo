@@ -113,7 +113,7 @@ type CitySave = {
   version: number; ink: number; coins: number; experience: number;
   unlockedOracleIds: string[]; mastery: Record<string, LearningRecord>;
   ownedProductIds: string[]; equippedShellId: string; placedDecorationIds: string[];
-  playerName: string; avatarId: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
+  playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
 };
 
 /**
@@ -604,6 +604,7 @@ export class YinXuCity extends Component {
       getProfile: () => ({
         playerName: this.save.playerName,
         avatarId: this.save.avatarId,
+        avatarUrl: this.save.avatarUrl,
         musicOn: this.save.musicOn,
         sfxOn: this.save.sfxOn,
         nightMode: this.save.nightMode,
@@ -613,8 +614,13 @@ export class YinXuCity extends Component {
         this.save.playerName = trimmed.length > 0 ? trimmed : '少年卜官';
         this.persistCitySave();
       },
-      setAvatar: (avatarId) => {
+      setAvatar: (avatarId, avatarUrl) => {
         this.save.avatarId = avatarId;
+        if (avatarId === 'custom' && avatarUrl) {
+          this.save.avatarUrl = avatarUrl;
+        } else {
+          delete this.save.avatarUrl;
+        }
         this.persistCitySave();
       },
       toggleMusic: () => {
@@ -4429,6 +4435,7 @@ export class YinXuCity extends Component {
         placedDecorationIds: Array.isArray(parsed.placedDecorationIds) ? parsed.placedDecorationIds : [],
         playerName: typeof parsed.playerName === 'string' && parsed.playerName.trim().length > 0 ? parsed.playerName.trim() : defaults.playerName,
         avatarId: typeof parsed.avatarId === 'string' && parsed.avatarId.length > 0 ? parsed.avatarId : defaults.avatarId,
+        avatarUrl: typeof parsed.avatarUrl === 'string' && parsed.avatarUrl.length > 0 ? parsed.avatarUrl : undefined,
         musicOn: typeof parsed.musicOn === 'boolean' ? parsed.musicOn : defaults.musicOn,
         sfxOn: typeof parsed.sfxOn === 'boolean' ? parsed.sfxOn : defaults.sfxOn,
         nightMode: typeof parsed.nightMode === 'boolean' ? parsed.nightMode : defaults.nightMode,

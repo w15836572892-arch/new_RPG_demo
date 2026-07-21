@@ -8,6 +8,7 @@ import {
   Input,
   Label,
   Node,
+  Rect,
   resources,
   Sprite,
   SpriteFrame,
@@ -54,9 +55,9 @@ type HallCallbacks = {
   getProgress: () => { ink: number; coins: number; experience: number; attempts: number; correct: number };
   recordReview: (cardId: string, correct: boolean) => void;
   enterYinXu: () => void;
-  getProfile: () => { playerName: string; avatarId: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean };
+  getProfile: () => { playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean };
   setName: (name: string) => void;
-  setAvatar: (avatarId: string) => void;
+  setAvatar: (avatarId: string, avatarUrl?: string) => void;
   toggleMusic: () => void;
   toggleSfx: () => void;
   toggleNight: () => void;
@@ -111,7 +112,7 @@ export class LearningHall extends Component {
   }
 
   private createRoot(name: string, mode: HallMode) {
-    this.root?.destroy();
+    if (this.root) { this.root.removeFromParent(); this.root.destroy(); }
     this.mode = mode;
     const visible = view.getVisibleSize();
     this.viewportScale = Math.min(visible.width / 1280, visible.height / 720);
@@ -128,6 +129,7 @@ export class LearningHall extends Component {
   }
 
   private close() {
+    this.root?.removeFromParent();
     this.root?.destroy();
     this.root = null;
     this.hiddenGameNodes.forEach(node => { if (node.isValid) node.active = true; });
@@ -301,7 +303,16 @@ export class LearningHall extends Component {
     avInner.fillColor = new Color(110, 94, 78, 255); avInner.circle(0, 0, avR * 0.79); avInner.fill();
     avInner.strokeColor = new Color(200, 184, 152, 255); avInner.lineWidth = 2; avInner.circle(0, 0, avR * 0.79 - 1); avInner.stroke();
     const av = AVATARS.find(a => a.id === profile.avatarId) ?? AVATARS[0];
-    this.label(root, 'HallTopAvatarEmoji', av.emoji, avX, topY, avR * 1.35, avR * 1.35, avR * 0.95, new Color(255, 233, 200), 'center', 6);
+    if (profile.avatarUrl) {
+      const avatarNode = new Node('HallTopAvatarSprite'); avatarNode.parent = root; avatarNode.setPosition(avX, topY, 6);
+      const avSize = avR * 1.6;
+      const avatarSprite = avatarNode.addComponent(Sprite);
+      avatarSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      avatarNode.addComponent(UITransform).setContentSize(avSize, avSize);
+      this.loadSpriteFrameFromDataUrl(profile.avatarUrl, avatarSprite);
+    } else {
+      this.label(root, 'HallTopAvatarEmoji', av.emoji, avX, topY, avR * 1.35, avR * 1.35, avR * 0.95, new Color(255, 233, 200), 'center', 6);
+    }
     // 左上：头像右侧上方名字，下方金棕胶囊段位 + 已识字数（严格不重叠）
     const textStart = avX + avR + 14; // 文字块左边界，紧贴头像右边缘
     this.label(root, 'HallPlayerName', profile.playerName || '少年卜官', textStart + 70, topY + 10, 140, 26, 17, t.ink, 'center', 6);
@@ -359,11 +370,16 @@ export class LearningHall extends Component {
     const avBg = this.graphics(root, 'HallCharAvatarBg', x, avY, avR * 2, avR * 2, 5);
     avBg.fillColor = new Color(255, 245, 220, 230); avBg.circle(0, 0, avR); avBg.fill();
     avBg.strokeColor = new Color(180, 130, 70, 200); avBg.lineWidth = 2; avBg.circle(0, 0, avR - 2); avBg.stroke();
+    const profile = this.callbacks!.getProfile();
     const avatar = new Node('HallCharAvatar'); avatar.parent = root; avatar.setPosition(x, avY, 6);
     const avSize = avR * 1.55;
     avatar.addComponent(UITransform).setContentSize(avSize, avSize);
     const avatarSprite = avatar.addComponent(Sprite); avatarSprite.sizeMode = Sprite.SizeMode.CUSTOM;
-    this.loadSprite('characters/oracle-apprentice/down-0/spriteFrame', avatar, avatarSprite, false);
+    if (profile.avatarUrl) {
+      this.loadSpriteFrameFromDataUrl(profile.avatarUrl, avatarSprite);
+    } else {
+      this.loadSprite('characters/oracle-apprentice/down-0/spriteFrame', avatar, avatarSprite, false);
+    }
     // 去掉了“少年卜官”名字，只保留角色身份、段位进度与提示
     this.label(root, 'HallCharRole', '殷墟小卜官', x, y - this.vh(0.026), 150, 20, 13, t.goldInk, 'center', 6);
     const nextRank = RANKS[Math.min(rankIdx + 1, RANKS.length - 1)];
@@ -743,7 +759,6 @@ export class LearningHall extends Component {
   }
 
   private drawSettingsPanel() {
-    // TODO: 头像当前使用 emoji 预设(AVATARS)，后期需接入本地上传：压缩图片→dataURL→save.avatar
     const root = this.createRoot('HallSettings', 'settings');
     const profile = this.callbacks!.getProfile();
     const t = this.theme();
@@ -765,11 +780,17 @@ export class LearningHall extends Component {
     this.drawSectionTitle(root, 'HallSetSec1Title', '头像与昵称', 258, t);
     this.label(root, 'HallSetCurAvatarLabel', '当前头像', -198, 214, 120, 24, 13, t.ink, 'left', 7);
     const cur = AVATARS.find(a => a.id === profile.avatarId) ?? AVATARS[0];
-    this.drawAvatarCircle(root, 'HallSetCurAvatar', 20, 214, 26, cur.emoji, true, t);
+    this.drawAvatarCircle(root, 'HallSetCurAvatar', 10, 214, 22, cur.emoji, true, t, profile.avatarUrl);
     AVATARS.forEach((av, i) => {
-      const x = 100 + i * 56;
-      this.drawAvatarCircle(root, `HallSetAvatar-${i}`, x, 214, 22, av.emoji, av.id === profile.avatarId, t);
+      const x = 60 + i * 44;
+      this.drawAvatarCircle(root, `HallSetAvatar-${i}`, x, 214, 18, av.emoji, av.id === profile.avatarId, t);
     });
+    // 上传自定义头像按钮（+）
+    const uploadR = 18, uploadX = 60 + AVATARS.length * 44;
+    const upNode = this.graphics(root, 'HallSetAvatarUpload', uploadX, 214, uploadR * 2, uploadR * 2, 5);
+    upNode.fillColor = new Color(255, 250, 235, 255); upNode.circle(0, 0, uploadR); upNode.fill();
+    upNode.strokeColor = new Color(180, 165, 145, 200); upNode.lineWidth = 2; upNode.circle(0, 0, uploadR - 2); upNode.stroke();
+    this.label(root, 'HallSetAvatarUploadPlus', '+', uploadX, 214, uploadR * 2 - 6, uploadR * 2 - 6, 22, new Color(150, 120, 90), 'center', 6);
     this.label(root, 'HallSetNameLabel', '昵称', -198, 162, 120, 24, 13, t.ink, 'left', 7);
     this.drawNicknameInput(root, profile.playerName, 70, 162, t);
     // sec2 声音设置
@@ -802,7 +823,7 @@ export class LearningHall extends Component {
     this.label(root, name, text, -158, y, 200, 22, 13, t.night ? new Color(255, 217, 138) : new Color(122, 74, 20), 'left', 7);
   }
 
-  private drawAvatarCircle(root: Node, name: string, x: number, y: number, r: number, emoji: string, selected: boolean, t: ReturnType<LearningHall['theme']>) {
+  private drawAvatarCircle(root: Node, name: string, x: number, y: number, r: number, emoji: string, selected: boolean, t: ReturnType<LearningHall['theme']>, avatarUrl?: string) {
     if (selected) {
       const ring = this.graphics(root, `${name}Ring`, x, y, (r + 6) * 2, (r + 6) * 2, 4);
       ring.strokeColor = new Color(255, 180, 70, 220); ring.lineWidth = 3; ring.circle(0, 0, r + 4); ring.stroke();
@@ -810,7 +831,38 @@ export class LearningHall extends Component {
     const node = this.graphics(root, name, x, y, r * 2, r * 2, 5);
     node.fillColor = new Color(255, 250, 235, 255); node.circle(0, 0, r); node.fill();
     node.strokeColor = selected ? new Color(180, 120, 50) : new Color(180, 165, 145, 200); node.lineWidth = selected ? 3 : 2; node.circle(0, 0, r - 2); node.stroke();
-    this.label(root, `${name}Emoji`, emoji, x, y, r * 2 - 6, r * 2 - 6, r * 1.2, new Color(100, 70, 40), 'center', 6);
+    if (avatarUrl) {
+      const avatarNode = new Node(`${name}Img`); avatarNode.parent = root; avatarNode.setPosition(x, y, 6);
+      const avSize = r * 1.7;
+      const avatarSprite = avatarNode.addComponent(Sprite);
+      avatarSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      avatarNode.addComponent(UITransform).setContentSize(avSize, avSize);
+      this.loadSpriteFrameFromDataUrl(avatarUrl, avatarSprite);
+    } else {
+      this.label(root, `${name}Emoji`, emoji, x, y, r * 2 - 6, r * 2 - 6, r * 1.2, new Color(100, 70, 40), 'center', 6);
+    }
+  }
+
+  private uploadAvatar() {
+    if (typeof document === 'undefined') return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.style.display = 'none';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        this.callbacks?.setAvatar('custom', dataUrl);
+        this.render('settings');
+      };
+      reader.readAsDataURL(file);
+    };
+    document.body.appendChild(input);
+    input.click();
+    setTimeout(() => { if (input.parentNode) input.parentNode.removeChild(input); }, 1000);
   }
 
   private drawNicknameInput(root: Node, name: string, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
@@ -821,7 +873,6 @@ export class LearningHall extends Component {
     const editNode = new Node('HallSetNameEdit'); editNode.parent = root; editNode.setPosition(x, y, 7);
     editNode.addComponent(UITransform).setContentSize(w - 20, h - 10);
     const edit = editNode.addComponent(EditBox) as EditBox;
-    edit.string = name;
     edit.maxLength = 12;
     edit.fontSize = 16;
     edit.fontColor = t.night ? new Color(255, 245, 220) : new Color(60, 40, 20);
@@ -829,8 +880,25 @@ export class LearningHall extends Component {
     edit.placeholderFontSize = 14;
     edit.placeholderFontColor = new Color(150, 130, 100, 180);
     edit.inputMode = EditBox.InputMode.SINGLE_LINE;
-    if (edit.textLabel) { edit.textLabel.horizontalAlign = Label.HorizontalAlign.LEFT; edit.textLabel.verticalAlign = Label.VerticalAlign.CENTER; }
-    if (edit.placeholderLabel) { edit.placeholderLabel.horizontalAlign = Label.HorizontalAlign.LEFT; edit.placeholderLabel.verticalAlign = Label.VerticalAlign.CENTER; }
+    // 显式锁定 textLabel / placeholderLabel 的 transform 与对齐，避免文字漂移
+    const textColor = edit.fontColor;
+    if (edit.textLabel) {
+      const tl = edit.textLabel;
+      tl.fontSize = 16; tl.color = textColor; tl.lineHeight = 20;
+      tl.horizontalAlign = Label.HorizontalAlign.LEFT; tl.verticalAlign = Label.VerticalAlign.CENTER;
+      tl.overflow = Label.Overflow.CLAMP; tl.enableWrapText = false;
+      const tf = tl.node.getComponent(UITransform);
+      tf.setAnchorPoint(0, 0.5); tf.setContentSize(w - 36, h - 10); tl.node.setPosition(-(w - 20) / 2 + 8, 0, 0);
+    }
+    if (edit.placeholderLabel) {
+      const pl = edit.placeholderLabel;
+      pl.fontSize = 14; pl.color = new Color(150, 130, 100, 180); pl.lineHeight = 18;
+      pl.horizontalAlign = Label.HorizontalAlign.LEFT; pl.verticalAlign = Label.VerticalAlign.CENTER;
+      pl.overflow = Label.Overflow.CLAMP; pl.enableWrapText = false;
+      const pf = pl.node.getComponent(UITransform);
+      pf.setAnchorPoint(0, 0.5); pf.setContentSize(w - 36, h - 10); pl.node.setPosition(-(w - 20) / 2 + 8, 0, 0);
+    }
+    edit.string = name;
     edit.editingDidEnded = (editbox: EditBox) => { this.callbacks?.setName(editbox.string); };
   }
 
@@ -873,7 +941,8 @@ export class LearningHall extends Component {
       return;
     }
     if (this.mode === 'settings') {
-      AVATARS.forEach((av, i) => { if (this.hit(x, y, 100 + i * 56, 214, 44, 44)) { this.callbacks?.setAvatar(av.id); this.render('settings'); } });
+      AVATARS.forEach((av, i) => { if (this.hit(x, y, 60 + i * 44, 214, 36, 36)) { this.callbacks?.setAvatar(av.id); this.render('settings'); } });
+      if (this.hit(x, y, 60 + AVATARS.length * 44, 214, 36, 36)) { this.uploadAvatar(); }
       if (this.hit(x, y, 212, 50, 46, 24)) { this.callbacks?.toggleMusic(); this.render('settings'); }
       else if (this.hit(x, y, 212, 14, 46, 24)) { this.callbacks?.toggleSfx(); this.render('settings'); }
       else if (this.hit(x, y, 212, -104, 46, 24)) { this.callbacks?.toggleNight(); this.render('settings'); }
@@ -942,6 +1011,25 @@ export class LearningHall extends Component {
       frame.texture.setFilters(linear ? Texture2D.Filter.LINEAR : Texture2D.Filter.NEAREST, linear ? Texture2D.Filter.LINEAR : Texture2D.Filter.NEAREST);
       sprite.spriteFrame = frame; sprite.sizeMode = Sprite.SizeMode.CUSTOM; complete?.();
     });
+  }
+
+  private loadSpriteFrameFromDataUrl(dataUrl: string, sprite: Sprite) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (!sprite.isValid) return;
+      const tex = new Texture2D();
+      tex.reset({ width: img.width, height: img.height });
+      tex.uploadData(img);
+      tex.setFilters(Texture2D.Filter.LINEAR, Texture2D.Filter.LINEAR);
+      const sf = new SpriteFrame();
+      sf.texture = tex;
+      sf.rect = new Rect(0, 0, img.width, img.height);
+      sprite.spriteFrame = sf;
+      sprite.color = Color.WHITE;
+    };
+    img.onerror = () => { console.warn('[LearningHall] failed to load avatar from dataUrl'); };
+    img.src = dataUrl;
   }
 
   private graphics(parent: Node, name: string, x: number, y: number, width: number, height: number, z = 0) {
