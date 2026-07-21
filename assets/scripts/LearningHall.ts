@@ -504,12 +504,19 @@ export class LearningHall extends Component {
       node.roundRect(-w / 2, -h / 2, w, h, 12); node.fill();
       node.strokeColor = isCur ? new Color(200, 62, 44, 255) : (t.night ? new Color(255, 210, 140, 46) : new Color(110, 76, 40, 30));
       node.lineWidth = isCur ? 2 : 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 11); node.stroke();
-      // 图标 emoji（无背景，对齐 .ric）
-      this.label(root, `HallRankRowIcon-${i}`, rank.icon, -w / 2 + 44, y, 52, 52, 32, new Color(80, 60, 40), 'center', 6);
+      // 图标圆形渐变背景（对齐 HTML .ric）
+      const iconR = 24;
+      const iconX = -w / 2 + 52;
+      const iconBg = this.graphics(root, `HallRankRowIconBg-${i}`, iconX, y, iconR * 2, iconR * 2, 6);
+      const c1 = this.hexToColor(rank.c1), c2 = this.hexToColor(rank.c2);
+      iconBg.fillColor = c1; iconBg.circle(0, 0, iconR); iconBg.fill();
+      iconBg.strokeColor = this.hexToColor(rank.bd); iconBg.lineWidth = 2; iconBg.circle(0, 0, iconR - 1); iconBg.stroke();
+      this.label(root, `HallRankRowIcon-${i}`, rank.icon, iconX, y, iconR * 1.6, iconR * 1.6, iconR * 1.1, new Color(255, 248, 236), 'center', 7);
+      // 文字在图标右侧垂直居中
       const nameColor = isDone ? new Color(90, 138, 58) : (t.night ? new Color(255, 240, 214) : new Color(58, 36, 16));
-      this.label(root, `HallRankRowName-${i}`, rank.name, -w / 2 + 92, y + 12, 300, 32, 18, nameColor, 'left', 6);
+      this.label(root, `HallRankRowName-${i}`, rank.name, -w / 2 + 98, y + 10, 300, 30, 18, nameColor, 'left', 6);
       const reqColor = isDone ? new Color(90, 138, 58) : (t.night ? new Color(216, 200, 168) : new Color(106, 74, 42));
-      this.label(root, `HallRankRowReq-${i}`, isDone ? '已达成' : `需 ${rank.threshold} 经验`, -w / 2 + 92, y - 22, 300, 24, 13, reqColor, 'left', 6);
+      this.label(root, `HallRankRowReq-${i}`, isDone ? '已达成' : `需 ${rank.threshold} 经验`, -w / 2 + 98, y - 16, 300, 22, 13, reqColor, 'left', 6);
     });
     this.button(root, 'HallRanksBack', '返回大厅', 0, -ph / 2 + 44, 220, 50, true);
   }
@@ -611,23 +618,24 @@ export class LearningHall extends Component {
   private openReviewLibrary() {
     const root = this.createRoot('HallReviewLibrary', 'review');
     const unlocked = this.cards().filter(card => card.unlocked);
+    const t = this.theme();
     this.reviewLibraryOpen = true;
     this.drawHeader(root, '复习所学', `已收集 ${unlocked.length} 个甲骨文字 · 浏览字卡后完成随机 5 题`, true);
-    this.panel(root, 'HallReviewLibraryPanel', 0, 3, 1040, 430, new Color(76, 57, 62), false);
+    this.panel(root, 'HallReviewLibraryPanel', 0, 3, 1040, 430, t.card, false);
     if (unlocked.length === 0) {
-      this.label(root, 'HallReviewEmptyTitle', '还没有可复习的真实甲骨字', 0, 62, 600, 48, 29, new Color(255, 230, 176));
-      this.label(root, 'HallReviewEmptyText', '在殷墟的考古坑完成辨识后，已收集的甲骨文字会自动出现在这里。', 0, -4, 590, 70, 19, new Color(226, 218, 220));
+      this.label(root, 'HallReviewEmptyTitle', '还没有可复习的真实甲骨字', 0, 62, 600, 48, 29, t.goldInk);
+      this.label(root, 'HallReviewEmptyText', '在殷墟的考古坑完成辨识后，已收集的甲骨文字会自动出现在这里。', 0, -4, 590, 70, 19, t.goldSub);
       this.button(root, 'HallReviewGoCity', '进入殷墟探索', 0, -110, 220, 58, true);
       return;
     }
     unlocked.slice(0, 6).forEach((card, index) => {
       const x = -350 + (index % 3) * 350; const y = 76 - Math.floor(index / 3) * 155;
       const item = this.graphics(root, `HallReviewCard-${index}`, x, y, 300, 128, 4);
-      item.fillColor = new Color(225, 201, 148, 244); item.roundRect(-150, -64, 300, 128, 14); item.fill();
-      item.strokeColor = this.qualityColor(card.quality); item.lineWidth = 3; item.roundRect(-147, -61, 294, 122, 12); item.stroke();
-      this.oracleGlyph(root, `HallReviewCardGlyph-${index}`, card, x - 96, y + 2, 52, 72, 6);
-      this.label(root, `HallReviewCardModern-${index}`, card.modern, x - 9, y + 24, 152, 30, 23, new Color(78, 45, 28), 'left', 6);
-      this.label(root, `HallReviewCardMeaning-${index}`, card.meaning, x - 9, y - 18, 152, 48, 14, new Color(99, 60, 37), 'left', 6);
+      item.fillColor = t.card; item.roundRect(-150, -64, 300, 128, 14); item.fill();
+      item.strokeColor = t.cardStroke; item.lineWidth = 2; item.roundRect(-148, -62, 296, 124, 12); item.stroke();
+      // 去掉甲骨文字 glyph，只保留现代汉字与释义，色调统一为大厅主题
+      this.label(root, `HallReviewCardModern-${index}`, card.modern, x, y + 22, 260, 34, 28, t.goldInk, 'center', 6);
+      this.label(root, `HallReviewCardMeaning-${index}`, card.meaning, x, y - 26, 260, 56, 14, t.goldSub, 'center', 6);
     });
     this.button(root, 'HallReviewStart', '开始随机 5 题', 0, -226, 230, 58, true);
   }
@@ -636,41 +644,43 @@ export class LearningHall extends Component {
     const question = this.reviewQuestions[this.reviewIndex];
     if (!question) { this.render('reviewResult'); return; }
     const root = this.createRoot('HallReview', 'review');
+    const t = this.theme();
     this.drawHeader(root, '复习所学', `第 ${this.reviewIndex + 1} / 5 题 · 选择这个甲骨文对应的现代汉字`, true);
-    this.panel(root, 'HallReviewGlyphPanel', -340, -20, 350, 430, new Color(223, 184, 113), true);
-    this.label(root, 'HallReviewHint', '这个甲骨文字的意思是？', -340, 160, 280, 36, 20, new Color(84, 48, 29));
+    this.panel(root, 'HallReviewGlyphPanel', -340, -20, 350, 430, t.card, false);
+    this.label(root, 'HallReviewHint', '这个甲骨文字的意思是？', -340, 160, 280, 36, 20, t.goldInk);
     this.oracleGlyph(root, 'HallReviewGlyph', question, -340, 45, 155, 190, 5);
-    this.label(root, 'HallReviewCaption', '观察字形，再选择现代汉字', -340, -155, 270, 42, 16, new Color(104, 63, 39));
+    this.label(root, 'HallReviewCaption', '观察字形，再选择现代汉字', -340, -155, 270, 42, 16, t.goldSub);
     const other = this.shuffle(this.cards().filter(card => card.id !== question.id));
     this.reviewOptions = this.shuffle([question, ...other.slice(0, 3)]);
-    this.label(root, 'HallReviewOptionsTitle', '选择正确答案', 150, 160, 560, 38, 25, new Color(255, 234, 180));
+    this.label(root, 'HallReviewOptionsTitle', '选择正确答案', 150, 160, 560, 38, 25, t.goldInk);
     const positions: Array<[number, number]> = [[5, 72], [295, 72], [5, -52], [295, -52]];
     this.reviewOptions.forEach((card, index) => this.button(root, `HallReviewOption-${index}`, `${String.fromCharCode(65 + index)}.  ${card.modern}`, positions[index][0], positions[index][1], 250, 88, false));
-    this.label(root, 'HallReviewTip', '答题结果会计入学习进度；本期不消耗任何资源。', 150, -185, 560, 30, 15, new Color(206, 208, 226));
+    this.label(root, 'HallReviewTip', '答题结果会计入学习进度；本期不消耗任何资源。', 150, -185, 560, 30, 15, t.goldSub);
   }
 
   private renderReviewResult() {
     const root = this.createRoot('HallReviewResult', 'reviewResult');
+    const t = this.theme();
     this.drawHeader(root, '复习完成', '随机 5 题已完成', true);
-    this.panel(root, 'HallReviewResultPanel', 0, -5, 1000, 440, new Color(223, 184, 113), true);
+    this.panel(root, 'HallReviewResultPanel', 0, -5, 1000, 440, t.card, false);
     const scorePanel = this.graphics(root, 'HallReviewScorePanel', -290, 40, 330, 250, 4);
-    scorePanel.fillColor = new Color(248, 229, 184, 180); scorePanel.roundRect(-165, -125, 330, 250, 18); scorePanel.fill();
-    scorePanel.strokeColor = new Color(170, 103, 59); scorePanel.lineWidth = 2; scorePanel.roundRect(-163, -123, 326, 246, 16); scorePanel.stroke();
-    this.label(root, 'HallReviewScoreTitle', '本轮复习成绩', -290, 121, 250, 30, 18, new Color(115, 66, 37));
-    this.label(root, 'HallReviewScore', `${this.reviewCorrect} / 5`, -290, 50, 270, 92, 62, new Color(148, 68, 47));
-    this.label(root, 'HallReviewResultText', this.reviewCorrect === 5 ? '太棒了，全部答对！' : '记住易错字，下次会更棒。', -290, -35, 260, 46, 19, new Color(103, 59, 35));
-    this.label(root, 'HallReviewMistakeTitle', this.reviewMistakes.length ? '本轮易错甲骨 · 下次优先复习' : '本轮没有易错字', 155, 130, 490, 34, 22, new Color(95, 54, 34));
+    scorePanel.fillColor = t.card; scorePanel.roundRect(-165, -125, 330, 250, 18); scorePanel.fill();
+    scorePanel.strokeColor = t.cardStroke; scorePanel.lineWidth = 2; scorePanel.roundRect(-163, -123, 326, 246, 16); scorePanel.stroke();
+    this.label(root, 'HallReviewScoreTitle', '本轮复习成绩', -290, 121, 250, 30, 18, t.goldInk);
+    this.label(root, 'HallReviewScore', `${this.reviewCorrect} / 5`, -290, 50, 270, 92, 62, t.goldInk);
+    this.label(root, 'HallReviewResultText', this.reviewCorrect === 5 ? '太棒了，全部答对！' : '记住易错字，下次会更棒。', -290, -35, 260, 46, 19, t.goldSub);
+    this.label(root, 'HallReviewMistakeTitle', this.reviewMistakes.length ? '本轮易错甲骨 · 下次优先复习' : '本轮没有易错字', 155, 130, 490, 34, 22, t.goldInk);
     if (this.reviewMistakes.length === 0) {
-      this.label(root, 'HallReviewPerfect', '全部答对，已经掌握得很好了！', 155, 43, 470, 56, 24, new Color(139, 75, 45));
+      this.label(root, 'HallReviewPerfect', '全部答对，已经掌握得很好了！', 155, 43, 470, 56, 24, t.goldSub);
     } else {
       this.reviewMistakes.slice(0, 5).forEach((card, index) => {
         const x = 45 + (index % 2) * 222; const y = 73 - Math.floor(index / 2) * 72;
         const item = this.graphics(root, `HallReviewMistake-${index}`, x, y, 204, 60, 4);
-        item.fillColor = new Color(246, 229, 192, 225); item.roundRect(-102, -30, 204, 60, 12); item.fill();
-        item.strokeColor = this.qualityColor(card.quality); item.lineWidth = 2; item.roundRect(-100, -28, 200, 56, 10); item.stroke();
+        item.fillColor = t.card; item.roundRect(-102, -30, 204, 60, 12); item.fill();
+        item.strokeColor = t.cardStroke; item.lineWidth = 2; item.roundRect(-100, -28, 200, 56, 10); item.stroke();
         this.oracleGlyph(root, `HallReviewMistakeGlyph-${index}`, card, x - 70, y, 34, 40, 6);
-        this.label(root, `HallReviewMistakeModern-${index}`, `正确：${card.modern}`, x + 20, y + 8, 120, 22, 16, new Color(87, 49, 31), 'left', 6);
-        this.label(root, `HallReviewMistakePinyin-${index}`, card.pinyin, x + 20, y - 13, 120, 19, 12, new Color(135, 83, 50), 'left', 6);
+        this.label(root, `HallReviewMistakeModern-${index}`, `正确：${card.modern}`, x + 20, y + 8, 120, 22, 16, t.goldInk, 'left', 6);
+        this.label(root, `HallReviewMistakePinyin-${index}`, card.pinyin, x + 20, y - 13, 120, 19, 12, t.goldSub, 'left', 6);
       });
     }
     this.button(root, 'HallReviewAgain', '再复习一次', -130, -175, 210, 58, true);
@@ -730,30 +740,33 @@ export class LearningHall extends Component {
     const titleLine = this.graphics(root, 'HallSettingsTitleLine', 0, ph / 2 - 64, 80, 3, 6);
     titleLine.fillColor = new Color(255, 180, 70, 255); titleLine.roundRect(-40, -1.5, 80, 3, 1.5); titleLine.fill();
 
+    // 重新排布 section，避免重叠：头像 90、昵称 58、声音 196、关于 80，间距 8
+    const secAvatarY = 161, secNameY = 79, secSoundY = -56, secAboutY = -202;
+
     // Section: avatar picker
-    this.drawSettingsSection(root, 'HallSetSecAvatar', 0, ph / 2 - 126, 520, 90, t);
-    this.label(root, 'HallSetAvatarLabel', '选择头像', -pw / 2 + 70, ph / 2 - 100, 120, 22, 16, t.ink, 'left', 7);
+    this.drawSettingsSection(root, 'HallSetSecAvatar', 0, secAvatarY, 520, 90, t);
+    this.label(root, 'HallSetAvatarLabel', '选择头像', -pw / 2 + 70, secAvatarY + 29, 120, 22, 16, t.ink, 'left', 7);
     AVATARS.forEach((av, i) => {
       const x = -pw / 2 + 110 + i * 74;
-      this.drawAvatarCircle(root, `HallSetAvatar-${i}`, x, ph / 2 - 152, 26, av.emoji, av.id === profile.avatarId, t);
+      this.drawAvatarCircle(root, `HallSetAvatar-${i}`, x, secAvatarY - 6, 26, av.emoji, av.id === profile.avatarId, t);
     });
 
     // Section: nickname
-    this.drawSettingsSection(root, 'HallSetSecName', 0, ph / 2 - 204, 520, 58, t);
-    this.label(root, 'HallSetNameLabel', '昵称', -pw / 2 + 70, ph / 2 - 204, 60, 24, 16, t.ink, 'left', 7);
-    this.drawNicknameInput(root, profile.playerName, 80, ph / 2 - 204, t);
+    this.drawSettingsSection(root, 'HallSetSecName', 0, secNameY, 520, 58, t);
+    this.label(root, 'HallSetNameLabel', '昵称', -pw / 2 + 70, secNameY + 16, 60, 24, 16, t.ink, 'left', 7);
+    this.drawNicknameInput(root, profile.playerName, 80, secNameY - 6, t);
 
     // Section: sound & display
-    this.drawSettingsSection(root, 'HallSetSecSound', 0, -28, 520, 196, t);
-    this.label(root, 'HallSetSoundTitle', '声音与显示', -pw / 2 + 70, 42, 200, 24, 16, t.ink, 'left', 7);
-    this.drawToggle(root, 'night', '夜间模式', -pw / 2 + 70, 0, profile.nightMode, t);
-    this.drawToggle(root, 'music', '背景音乐', -pw / 2 + 70, -50, profile.musicOn, t);
-    this.drawToggle(root, 'sfx', '音效', -pw / 2 + 70, -100, profile.sfxOn, t);
+    this.drawSettingsSection(root, 'HallSetSecSound', 0, secSoundY, 520, 196, t);
+    this.label(root, 'HallSetSoundTitle', '声音与显示', -pw / 2 + 70, secSoundY + 76, 200, 24, 16, t.ink, 'left', 7);
+    this.drawToggle(root, 'night', '夜间模式', -pw / 2 + 70, secSoundY + 36, profile.nightMode, t);
+    this.drawToggle(root, 'music', '背景音乐', -pw / 2 + 70, secSoundY - 14, profile.musicOn, t);
+    this.drawToggle(root, 'sfx', '音效', -pw / 2 + 70, secSoundY - 64, profile.sfxOn, t);
 
     // Section: about
-    this.drawSettingsSection(root, 'HallSetSecAbout', 0, -166, 520, 80, t);
-    this.label(root, 'HallSetAboutTitle', '关于游戏', -pw / 2 + 70, -142, 200, 20, 14, t.ink, 'left', 7);
-    this.label(root, 'HallSetAboutText', '殷墟甲骨文学习工具 · 开发中\n版本 V3.1 · 新国风探索 RPG', 0, -172, 480, 44, 12, t.sub, 'center', 7);
+    this.drawSettingsSection(root, 'HallSetSecAbout', 0, secAboutY, 520, 80, t);
+    this.label(root, 'HallSetAboutTitle', '关于游戏', -pw / 2 + 70, secAboutY + 27, 200, 20, 14, t.ink, 'left', 7);
+    this.label(root, 'HallSetAboutText', '殷墟甲骨文学习工具 · 开发中\n版本 V3.1 · 新国风探索 RPG', 0, secAboutY - 6, 480, 44, 12, t.sub, 'center', 7);
 
     this.button(root, 'HallSetBack', '返回大厅', 0, -ph / 2 + 42, 220, 50, true);
   }
