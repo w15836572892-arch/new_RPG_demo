@@ -2,9 +2,11 @@ import {
   _decorator,
   Color,
   Component,
+  DebugMode,
   EventKeyboard,
   EventTouch,
   Graphics,
+  game,
   input,
   Input,
   KeyCode,
@@ -127,7 +129,14 @@ export class YinXuCity extends Component {
   private readonly mapHeight = this.rows * this.tile;
   private readonly playerRadius = 9;
   private readonly actorRadius = 23;
+  // The indoor player root is the foot point. Its 44px-wide root and 24x8px
+  // painted shadow require a wider, shallow footprint than the old 9px circle.
+  private readonly templeFootHalfWidth = 20;
+  private readonly templeFootHalfHeight = 9;
   private readonly moveSpeed = 158;
+  private readonly templeWalkBounds = { left: -548, right: 548, bottom: -282, top: 214 };
+  private readonly templeSeatPoint = new Vec2(0, -24);
+  private readonly templeRiseSafePoint = new Vec2(0, -185);
   private readonly excavationNodeWidth = 44;
   private readonly excavationNodeHeight = 32;
   private readonly EXCAVATION_VISUAL_WIDTH = 112;
@@ -493,6 +502,14 @@ export class YinXuCity extends Component {
   private worldMode: WorldMode = 'outside';
   private templeInterior: Node | null = null;
   private interiorObstacles: RectObstacle[] = [];
+  private templeChairVisualRoot: Node | null = null;
+  private templeTableVisual: Node | null = null;
+  private templeCollisionDebug: Node | null = null;
+  private templeCollisionDebugGraphics: Graphics | null = null;
+  private templePreSitPosition: Vec2 | null = null;
+  private templePreSitFacing: Facing = 'down';
+  private templePreSitWorldMode: WorldMode = 'templeInterior';
+  private templeLastRisePosition: Vec2 | null = null;
   private seated = false;
   private currentQuestion: DivinationQuestion | null = null;
   private currentQuestionIndex = -1;
@@ -625,10 +642,13 @@ export class YinXuCity extends Component {
     if (direction.lengthSqr() > .001) {
       const dx = direction.x * this.moveSpeed * dt;
       const dy = direction.y * this.moveSpeed * dt;
-      if (this.canPlayerStand(this.playerPos.x + dx, this.playerPos.y)) this.playerPos.x += dx;
-      else if (Math.abs(dx) > .01) this.blocked = true;
-      if (this.canPlayerStand(this.playerPos.x, this.playerPos.y + dy)) this.playerPos.y += dy;
-      else if (Math.abs(dy) > .01) this.blocked = true;
+      if (this.worldMode === 'templeInterior') this.moveTemplePlayerWithCollision(dx, dy);
+      else {
+        if (this.canPlayerStand(this.playerPos.x + dx, this.playerPos.y)) this.playerPos.x += dx;
+        else if (Math.abs(dx) > .01) this.blocked = true;
+        if (this.canPlayerStand(this.playerPos.x, this.playerPos.y + dy)) this.playerPos.y += dy;
+        else if (Math.abs(dy) > .01) this.blocked = true;
+      }
     }
 
     const movedDistance = Math.hypot(this.playerPos.x - oldX, this.playerPos.y - oldY);
@@ -646,7 +666,10 @@ export class YinXuCity extends Component {
     if (this.worldMode === 'outside') {
       this.updateRestingVillager();
       this.animateEnvironment();
-      this.updateTreeDepthOrdering();
+    }
+    this.updateTreeDepthOrdering();
+    if (this.worldMode === 'templeInterior' && this.templeCollisionDebugGraphics) {
+      this.redrawTempleInteriorCollisionDebug();
     }
     this.updateTorches(dt);
     this.updateWeather(dt);
@@ -1152,297 +1175,259 @@ export class YinXuCity extends Component {
     this.addObstacle(x, y - 18, 28, 32, '青铜火盆');
   }
 
-  private createInteriorBrazier(x: number, y: number, index: number) {
-    if (!this.templeInterior?.isValid) return;
-    const root = new Node(`TempleInteriorBrazier${index}`);
-    root.parent = this.templeInterior;
-    root.setPosition(x, y, 15);
-    root.addComponent(UITransform).setContentSize(84, 100);
-
-    const body = root.addComponent(Graphics);
-    body.fillColor = new Color(47, 32, 28, 115); body.ellipse(0, -33, 30, 8); body.fill();
-    body.fillColor = new Color(49, 69, 62); body.rect(-22, -26, 44, 25); body.fill();
-    body.fillColor = new Color(90, 111, 92); body.rect(-28, -7, 56, 9); body.fill();
-    body.fillColor = new Color(36, 50, 46); body.rect(-24, 1, 48, 8); body.fill();
-    body.strokeColor = new Color(177, 137, 67); body.lineWidth = 3;
-    body.moveTo(-28, 2); body.lineTo(-20, -22); body.lineTo(20, -22); body.lineTo(28, 2); body.stroke();
-    body.fillColor = new Color(49, 61, 54);
-    body.rect(-18, -39, 7, 16); body.rect(11, -39, 7, 16); body.fill();
-    body.fillColor = new Color(169, 119, 58);
-    body.rect(-16, -13, 6, 4); body.rect(7, -13, 9, 4); body.fill();
-
-    const glowNode = new Node(`TempleInteriorBrazierGlow${index}`);
-    glowNode.parent = root; glowNode.setPosition(0, 12, 1); glowNode.addComponent(UITransform).setContentSize(120, 120);
-    const glow = glowNode.addComponent(Graphics);
-    const flameNode = new Node(`TempleInteriorBrazierFlame${index}`);
-    flameNode.parent = root; flameNode.setPosition(0, 12, 3); flameNode.addComponent(UITransform).setContentSize(58, 68);
-    const flame = flameNode.addComponent(Graphics);
-    const emberNode = new Node(`TempleInteriorBrazierEmbers${index}`);
-    emberNode.parent = root; emberNode.setPosition(0, 12, 4); emberNode.addComponent(UITransform).setContentSize(64, 74);
-    const embers = emberNode.addComponent(Graphics);
-    this.torchFlames.push({ root, flame, glow, embers, phase: 7.3 + index * 2.11, intensity: 1, sheltered: true });
-    this.interiorObstacles.push({ x, y: y - 16, w: 66, h: 52, name: '内殿青铜火盆' });
-  }
-
   private createTempleInterior() {
     const root = new Node('DivinationTempleInterior');
     root.parent = this.node;
     root.setPosition(0, 0, 110);
     root.addComponent(UITransform).setContentSize(1280, 720);
     this.templeInterior = root;
-    this.interiorObstacles = [];
 
-    // A full-screen hall replaces the earlier display-box room. The structure
-    // follows a clear entrance -> ritual aisle -> divination desk -> altar axis.
-    const backdrop = this.localGraphics('TempleInteriorBackdrop', root, 0, 0, 1280, 720, 0);
-    backdrop.fillColor = new Color(27, 23, 22); backdrop.rect(-640, -360, 1280, 720); backdrop.fill();
-    backdrop.fillColor = new Color(53, 39, 31); backdrop.rect(-616, -336, 1232, 672); backdrop.fill();
-    backdrop.fillColor = new Color(92, 64, 43); backdrop.rect(-600, -322, 1200, 642); backdrop.fill();
-    backdrop.strokeColor = new Color(28, 24, 22); backdrop.lineWidth = 10; backdrop.rect(-602, -324, 1204, 646); backdrop.stroke();
-
-    const floor = this.localGraphics('TempleInteriorRammedEarthFloor', root, 0, 0, 1200, 650, 1);
-    floor.fillColor = new Color(139, 96, 57); floor.rect(-570, -294, 1140, 514); floor.fill();
-    const floorColors = [new Color(142, 98, 59), new Color(131, 88, 53), new Color(151, 105, 64), new Color(124, 83, 52)];
-    for (let row = 0; row < 13; row++) {
-      const y = -285 + row * 39;
-      const offset = row % 2 === 0 ? 0 : 45;
-      for (let col = -7; col <= 6; col++) {
-        const x = col * 92 + offset;
-        const w = 88 + ((row + col + 20) % 3) * 2;
-        floor.fillColor = floorColors[(row * 2 + col + 28) % floorColors.length];
-        floor.rect(x - w / 2, y, w - 3, 36); floor.fill();
-        floor.strokeColor = new Color(79, 54, 39, 125); floor.lineWidth = 1.5;
-        floor.moveTo(x - w / 2, y); floor.lineTo(x + w / 2 - 3, y); floor.stroke();
-        if ((row + col) % 3 === 0) {
-          floor.fillColor = new Color(83, 57, 41, 120);
-          floor.rect(x - 22, y + 9, 3, 3); floor.rect(x + 19, y + 24, 2, 2); floor.fill();
-        }
-      }
-    }
-    floor.fillColor = new Color(67, 48, 38, 150);
-    floor.rect(-570, 211, 1140, 13); floor.rect(-570, -301, 1140, 10); floor.fill();
-
-    const walls = this.localGraphics('TempleInteriorEarthenWalls', root, 0, 0, 1240, 680, 3);
-    walls.fillColor = new Color(114, 79, 51); walls.rect(-590, 220, 1180, 94); walls.fill();
-    walls.fillColor = new Color(92, 61, 43); walls.rect(-590, -300, 32, 614); walls.rect(558, -300, 32, 614); walls.fill();
-    walls.fillColor = new Color(61, 42, 34); walls.rect(-590, 207, 1180, 17); walls.rect(-590, 297, 1180, 17); walls.fill();
-    walls.fillColor = new Color(55, 39, 33);
-    [-566, -430, -292, -154, 0, 154, 292, 430, 566].forEach(x => walls.rect(x - 7, 210, 14, 108));
-    walls.fill();
-    walls.strokeColor = new Color(174, 124, 71, 140); walls.lineWidth = 2;
-    for (let x = -540; x < 540; x += 78) {
-      walls.moveTo(x, 241); walls.lineTo(x + 48, 241);
-      walls.moveTo(x + 21, 270); walls.lineTo(x + 69, 270);
-    }
-    walls.stroke();
-    walls.fillColor = new Color(42, 31, 28, 145);
-    walls.rect(-558, -296, 12, 506); walls.rect(546, -296, 12, 506); walls.fill();
-
-    const beams = this.localGraphics('TempleInteriorRoofBeams', root, 0, 0, 1220, 690, 4);
-    beams.fillColor = new Color(46, 33, 29); beams.rect(-606, 310, 1212, 24); beams.fill();
-    beams.fillColor = new Color(74, 48, 35); beams.rect(-575, 283, 1150, 14); beams.fill();
-    for (let x = -520; x <= 520; x += 130) {
-      beams.fillColor = new Color(59, 41, 33); beams.rect(x - 8, 212, 16, 88); beams.fill();
-      beams.fillColor = new Color(118, 76, 42); beams.rect(x - 5, 225, 4, 61); beams.fill();
-    }
-
-    const aisle = this.localGraphics('TempleInteriorCeremonialAisle', root, 0, 0, 250, 520, 5);
-    aisle.fillColor = new Color(86, 58, 43, 100); aisle.rect(-95, -286, 190, 405); aisle.fill();
-    const aisleColors = [new Color(161, 133, 87), new Color(143, 118, 82), new Color(175, 144, 91), new Color(128, 107, 79)];
-    for (let row = 0; row < 11; row++) {
-      const y = -270 + row * 36;
-      const x = row % 2 === 0 ? -5 : 6;
-      const w = 154 + (row % 3) * 5;
-      aisle.fillColor = aisleColors[row % aisleColors.length]; aisle.rect(x - w / 2, y, w, 31); aisle.fill();
-      aisle.strokeColor = new Color(69, 57, 46, 150); aisle.lineWidth = 2;
-      aisle.moveTo(x - w / 2, y + 1); aisle.lineTo(x + w / 2, y + 1); aisle.stroke();
-      aisle.fillColor = new Color(213, 178, 105, 72); aisle.rect(x - 47, y + 21, 38, 2); aisle.fill();
-    }
-
-    // Dense hand-placed-looking clusters break up large procedural color
-    // fields. Their deterministic spacing keeps the room crisp and stable.
-    const texture = this.localGraphics('TempleInteriorPixelTexture', root, 0, 0, 1160, 540, 6);
-    const textureColors = [
-      new Color(76, 53, 41, 105), new Color(194, 139, 78, 82),
-      new Color(106, 70, 45, 95), new Color(223, 169, 94, 55),
-    ];
-    for (let i = 0; i < 460; i++) {
-      const x = -548 + ((i * 83 + (i % 7) * 19) % 1096);
-      const y = -280 + ((i * 149 + (i % 11) * 13) % 486);
-      if (Math.abs(x) < 96 && y < 118 && i % 4 !== 0) continue;
-      texture.fillColor = textureColors[i % textureColors.length];
-      const w = 2 + (i % 3); const h = 2 + ((i >> 2) % 2);
-      texture.rect(x, y, w, h); texture.fill();
-      if (i % 9 === 0) {
-        texture.fillColor = textureColors[(i + 1) % textureColors.length];
-        texture.rect(x + 5, y - 2, 2, 2); texture.rect(x - 3, y + 4, 3, 2); texture.fill();
-      }
-    }
-    texture.strokeColor = new Color(74, 50, 39, 100); texture.lineWidth = 1.5;
-    for (let i = 0; i < 26; i++) {
-      const x = -520 + (i * 211 % 1040); const y = -248 + (i * 97 % 420);
-      if (Math.abs(x) < 120) continue;
-      texture.moveTo(x, y); texture.lineTo(x + 9 + i % 7, y + 3); texture.lineTo(x + 15 + i % 5, y - 2); texture.stroke();
-    }
-
-    const motifs = this.localGraphics('TempleInteriorWallMotifs', root, 0, 258, 1120, 70, 7);
-    motifs.strokeColor = new Color(202, 145, 67, 115); motifs.lineWidth = 2;
-    for (let x = -520; x <= 520; x += 80) {
-      motifs.rect(x - 13, -12, 26, 24);
-      motifs.moveTo(x - 8, 5); motifs.lineTo(x + 6, 5); motifs.lineTo(x + 6, -6); motifs.lineTo(x - 2, -6); motifs.lineTo(x - 2, 0);
-    }
-    motifs.stroke();
-
-    const entry = this.localGraphics('TempleInteriorEntry', root, 0, -292, 260, 120, 10);
-    entry.fillColor = new Color(27, 24, 23); entry.rect(-66, -35, 132, 81); entry.fill();
-    entry.fillColor = new Color(73, 47, 35); entry.rect(-84, 36, 168, 15); entry.rect(-79, -37, 158, 13); entry.fill();
-    entry.fillColor = new Color(161, 124, 74); entry.rect(-66, -27, 132, 8); entry.fill();
-    entry.fillColor = new Color(107, 82, 54);
-    entry.rect(-91, -54, 182, 13); entry.rect(-80, -68, 160, 12); entry.fill();
-    entry.strokeColor = new Color(218, 176, 95, 135); entry.lineWidth = 2;
-    [-38, -12, 18, 44].forEach(x => { entry.moveTo(x, -25); entry.lineTo(x + 9, -19); }); entry.stroke();
-
-    const dais = this.localGraphics('TempleInteriorAltarDais', root, 0, 164, 510, 150, 8);
-    dais.fillColor = new Color(45, 34, 30, 145); dais.ellipse(0, -55, 220, 21); dais.fill();
-    // Three stepped courses expose their front faces instead of reading as a
-    // single flat rectangle pasted behind the table.
-    dais.fillColor = new Color(71, 49, 38); dais.rect(-224, -50, 448, 26); dais.fill();
-    dais.fillColor = new Color(112, 74, 45); dais.rect(-208, -24, 416, 29); dais.fill();
-    dais.fillColor = new Color(145, 94, 50); dais.rect(-190, 5, 380, 24); dais.fill();
-    dais.fillColor = new Color(57, 41, 34); dais.rect(-224, -52, 14, 28); dais.rect(210, -52, 14, 28); dais.fill();
-    dais.strokeColor = new Color(207, 151, 72, 180); dais.lineWidth = 2;
-    dais.moveTo(-205, -20); dais.lineTo(205, -20); dais.moveTo(-187, 9); dais.lineTo(187, 9); dais.stroke();
-    for (let x = -168; x <= 168; x += 48) {
-      dais.fillColor = new Color(74, 49, 36, 145); dais.rect(x, -43, 4, 10); dais.fill();
-    }
-
-    const altar = this.localGraphics('TempleInteriorMainAltar', root, 0, 188, 430, 130, 12);
-    altar.fillColor = new Color(57, 40, 33); altar.rect(-176, -39, 352, 56); altar.fill();
-    altar.fillColor = new Color(139, 87, 47); altar.rect(-190, 13, 380, 15); altar.fill();
-    altar.fillColor = new Color(86, 53, 38); altar.rect(-157, -56, 16, 18); altar.rect(141, -56, 16, 18); altar.fill();
-    altar.strokeColor = new Color(218, 163, 77); altar.lineWidth = 3; altar.rect(-170, -34, 340, 45); altar.stroke();
-
-    // Central oracle shell and paired ritual bronzes make the altar readable
-    // as a working divination space rather than generic furniture.
-    altar.fillColor = new Color(55, 74, 66); altar.rect(-56, -14, 112, 52); altar.fill();
-    altar.strokeColor = new Color(187, 146, 71); altar.lineWidth = 3; altar.rect(-56, -14, 112, 52); altar.stroke();
-    altar.fillColor = new Color(219, 188, 120); altar.ellipse(0, 20, 33, 23); altar.fill();
-    altar.strokeColor = new Color(91, 57, 40); altar.lineWidth = 3;
-    altar.moveTo(-8, 36); altar.lineTo(5, 24); altar.lineTo(-6, 13); altar.lineTo(9, 1); altar.stroke();
-    [-132, 132].forEach((x, vesselIndex) => {
-      altar.fillColor = vesselIndex === 0 ? new Color(65, 85, 72) : new Color(59, 78, 69);
-      altar.rect(x - 22, -3, 44, 30); altar.fill();
-      altar.fillColor = new Color(99, 116, 87); altar.rect(x - 28, 23, 56, 8); altar.fill();
-      altar.fillColor = new Color(47, 60, 54); altar.rect(x - 16, -19, 7, 18); altar.rect(x + 9, -19, 7, 18); altar.fill();
-      altar.strokeColor = new Color(180, 137, 66); altar.lineWidth = 2;
-      altar.moveTo(x - 15, 7); altar.lineTo(x, 17); altar.lineTo(x + 15, 7); altar.stroke();
-    });
-    this.interiorObstacles.push({ x: 0, y: 174, w: 450, h: 122, name: '宗庙北侧祭台' });
-
-    // Chair back is behind the actor. The low front rail is a separate high-z
-    // piece, so the player's legs are visibly seated rather than standing on
-    // top of a chair sprite.
-    const chairBack = this.localGraphics('TempleInteriorRitualChairBack', root, 0, -24, 94, 112, 68);
-    chairBack.fillColor = new Color(43, 31, 27, 120); chairBack.ellipse(0, -27, 40, 10); chairBack.fill();
-    chairBack.fillColor = new Color(73, 45, 33); chairBack.rect(-34, -12, 68, 60); chairBack.fill();
-    chairBack.fillColor = new Color(119, 71, 42); chairBack.rect(-28, -6, 56, 46); chairBack.fill();
-    chairBack.fillColor = new Color(171, 105, 52); chairBack.rect(-38, 42, 76, 9); chairBack.fill();
-    chairBack.fillColor = new Color(55, 37, 31); chairBack.rect(-38, -29, 10, 76); chairBack.rect(28, -29, 10, 76); chairBack.fill();
-    chairBack.strokeColor = new Color(210, 153, 72); chairBack.lineWidth = 2;
-    chairBack.rect(-24, 1, 48, 32); chairBack.moveTo(-18, 26); chairBack.lineTo(18, 7); chairBack.stroke();
-    const chairFront = this.localGraphics('TempleInteriorRitualChairFront', root, 0, -24, 90, 54, 91);
-    chairFront.fillColor = new Color(60, 39, 31); chairFront.rect(-35, -25, 10, 25); chairFront.rect(25, -25, 10, 25); chairFront.fill();
-    chairFront.fillColor = new Color(151, 84, 45); chairFront.rect(-34, -5, 68, 12); chairFront.fill();
-    chairFront.strokeColor = new Color(224, 167, 78); chairFront.lineWidth = 2; chairFront.moveTo(-30, 4); chairFront.lineTo(30, 4); chairFront.stroke();
-
-    // The desk is deliberately narrower than the old asset and stands south
-    // (in front) of the chair on the room's entrance-to-altar axis.
-    const table = this.localGraphics('TempleInteriorDivinationTable', root, 0, -91, 250, 130, 87);
-    table.fillColor = new Color(40, 30, 27, 145); table.ellipse(0, -48, 104, 15); table.fill();
-    table.fillColor = new Color(61, 40, 31); table.rect(-85, -55, 14, 42); table.rect(71, -55, 14, 42); table.fill();
-    table.fillColor = new Color(101, 58, 37); table.rect(-97, -24, 194, 28); table.fill();
-    table.fillColor = new Color(151, 89, 45);
-    table.moveTo(-106, 4); table.lineTo(-91, 33); table.lineTo(91, 33); table.lineTo(106, 4); table.close(); table.fill();
-    table.strokeColor = new Color(65, 41, 31); table.lineWidth = 4;
-    table.moveTo(-106, 4); table.lineTo(-91, 33); table.lineTo(91, 33); table.lineTo(106, 4); table.close(); table.stroke();
-    table.fillColor = new Color(194, 126, 61); table.rect(-89, 27, 178, 6); table.fill();
-    table.strokeColor = new Color(218, 161, 78, 150); table.lineWidth = 2;
-    [-70, -30, 12, 54].forEach((px, index) => { table.moveTo(px, 7); table.lineTo(px + 13 + index % 2 * 5, 27); }); table.stroke();
-    // Oracle shell, ink stone and divination awl are drawn into the tabletop
-    // with their own shadows so they belong to the furniture perspective.
-    table.fillColor = new Color(63, 45, 35, 110); table.ellipse(-21, 14, 30, 8); table.fill();
-    table.fillColor = new Color(215, 185, 119); table.ellipse(-22, 18, 27, 18); table.fill();
-    table.strokeColor = new Color(91, 55, 39); table.lineWidth = 2;
-    table.moveTo(-30, 28); table.lineTo(-17, 19); table.lineTo(-27, 9); table.stroke();
-    table.fillColor = new Color(46, 54, 50); table.ellipse(48, 14, 18, 10); table.fill();
-    table.strokeColor = new Color(174, 132, 67); table.lineWidth = 3; table.moveTo(70, 6); table.lineTo(82, 27); table.stroke();
-    this.interiorObstacles.push({ x: 0, y: -91, w: 220, h: 78, name: '占卜案桌' });
-
-    const guestMat = this.localGraphics('TempleInteriorGuestMat', root, 150, -78, 96, 66, 10);
-    guestMat.fillColor = new Color(91, 78, 50); guestMat.rect(-49, -26, 98, 51); guestMat.fill();
-    guestMat.strokeColor = new Color(188, 147, 77); guestMat.lineWidth = 2; guestMat.rect(-49, -26, 98, 51); guestMat.stroke();
-    guestMat.strokeColor = new Color(158, 122, 67, 145); guestMat.lineWidth = 1;
-    for (let x = -37; x <= 37; x += 12) { guestMat.moveTo(x, -22); guestMat.lineTo(x, 21); } guestMat.stroke();
-
-    const archive = this.localGraphics('TempleInteriorArchiveWall', root, -476, 45, 170, 290, 11);
-    archive.fillColor = new Color(51, 36, 31, 125); archive.rect(-74, -130, 148, 260); archive.fill();
-    archive.fillColor = new Color(74, 48, 35); archive.rect(-67, -124, 134, 248); archive.fill();
-    archive.strokeColor = new Color(173, 116, 59); archive.lineWidth = 5; archive.rect(-67, -124, 134, 248); archive.stroke();
-    archive.fillColor = new Color(116, 72, 41);
-    [-76, -16, 44, 104].forEach(y => archive.rect(-61, y - 6, 122, 12)); archive.fill();
-    const tabletColors = [new Color(213, 177, 108), new Color(185, 147, 87), new Color(227, 195, 128)];
-    for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) {
-      const x = -43 + col * 29; const y = -102 + row * 60;
-      archive.fillColor = tabletColors[(row + col) % tabletColors.length]; archive.rect(x - 9, y - 16, 18, 30); archive.fill();
-      archive.strokeColor = new Color(92, 58, 41, 190); archive.lineWidth = 1;
-      archive.moveTo(x - 3, y + 7); archive.lineTo(x + 4, y + 1); archive.lineTo(x - 2, y - 7); archive.stroke();
-    }
-    archive.node.active = false;
-    this.pixelSprite('TempleInteriorOracleCabinetA', 'temple-oracle-cabinet-a-v1', root, -482, 47, 138, 245, 76);
-    this.pixelSprite('TempleInteriorOracleCabinetB', 'temple-oracle-cabinet-b-v1', root, -337, 47, 148, 240, 76);
-    this.interiorObstacles.push({ x: -410, y: 45, w: 310, h: 280, name: '双列甲骨档案柜' });
-
-    const workbench = this.localGraphics('TempleInteriorHeatingWorkbench', root, 466, 52, 190, 180, 11);
-    workbench.fillColor = new Color(47, 35, 31, 115); workbench.ellipse(0, -67, 86, 14); workbench.fill();
-    workbench.fillColor = new Color(106, 64, 42); workbench.rect(-82, -45, 164, 61); workbench.fill();
-    workbench.fillColor = new Color(153, 93, 48); workbench.rect(-91, 8, 182, 15); workbench.fill();
-    workbench.fillColor = new Color(71, 44, 34); workbench.rect(-70, -70, 15, 27); workbench.rect(55, -70, 15, 27); workbench.fill();
-    workbench.strokeColor = new Color(204, 151, 77); workbench.lineWidth = 2; workbench.rect(-80, -43, 160, 49); workbench.stroke();
-    // Ink jars, awls and heated bronze tools.
-    [-53, -16, 24, 58].forEach((x, toolIndex) => {
-      workbench.fillColor = toolIndex % 2 === 0 ? new Color(55, 75, 68) : new Color(91, 84, 59);
-      workbench.rect(x - 12, 17, 24, 24 + (toolIndex % 2) * 7); workbench.fill();
-      workbench.fillColor = new Color(177, 135, 67); workbench.rect(x - 15, 38 + (toolIndex % 2) * 7, 30, 5); workbench.fill();
-    });
-    workbench.strokeColor = new Color(210, 169, 91); workbench.lineWidth = 2;
-    workbench.moveTo(-74, 59); workbench.lineTo(-31, 37); workbench.moveTo(31, 58); workbench.lineTo(75, 42); workbench.stroke();
-    this.interiorObstacles.push({ x: 466, y: 32, w: 190, h: 145, name: '灼具与墨料案' });
-
-    const banners: Array<[number, number, number]> = [[-302, 224, -1], [302, 224, 1]];
-    banners.forEach(([x, y, direction], index) => {
-      const banner = this.localGraphics(`TempleInteriorBanner${index}`, root, x, y, 112, 190, 9);
-      banner.fillColor = new Color(54, 38, 32); banner.rect(-5, -77, 10, 164); banner.fill();
-      banner.fillColor = new Color(132, 43, 39); banner.moveTo(direction * 2, 66); banner.lineTo(direction * 52, 52); banner.lineTo(direction * 45, -42); banner.lineTo(direction * 23, -29); banner.lineTo(direction * 4, -43); banner.close(); banner.fill();
-      banner.fillColor = new Color(180, 65, 44); banner.rect(direction < 0 ? -42 : 13, 35, 29, 6); banner.fill();
-      banner.strokeColor = new Color(222, 169, 76); banner.lineWidth = 3;
-      banner.moveTo(direction * 13, 39); banner.lineTo(direction * 35, 32); banner.lineTo(direction * 18, 15); banner.stroke();
-    });
-
-    const sideDetails = this.localGraphics('TempleInteriorSideDetails', root, 0, 0, 1160, 620, 10);
-    sideDetails.fillColor = new Color(71, 48, 37, 120);
-    sideDetails.ellipse(-330, -214, 64, 16); sideDetails.ellipse(350, -221, 72, 18); sideDetails.fill();
-    sideDetails.fillColor = new Color(104, 83, 52);
-    [-370, -338, -306].forEach((x, i) => sideDetails.rect(x - 12, -226 + i * 2, 24, 26 + i * 4));
-    sideDetails.fill();
-    sideDetails.strokeColor = new Color(191, 147, 75); sideDetails.lineWidth = 2;
-    sideDetails.moveTo(324, -225); sideDetails.lineTo(347, -194); sideDetails.lineTo(366, -229); sideDetails.stroke();
-
-    this.createInteriorBrazier(-335, -105, 0);
-    this.createInteriorBrazier(335, -105, 1);
-    this.createUiLabel(root, 'TempleInteriorNameplate', '贞人卜室', 0, 273, 286, 42, 21, new Color(239, 201, 116), 'center', 18);
-    this.createUiLabel(root, 'TempleInteriorArchiveLabel', '甲骨档案', -410, 199, 300, 28, 14, new Color(218, 181, 109), 'center', 18);
-    this.createUiLabel(root, 'TempleInteriorToolsLabel', '墨料与灼具', 466, 164, 180, 28, 14, new Color(218, 181, 109), 'center', 18);
+    this.configureTempleInteriorObstacles();
+    this.createTempleInteriorCollisionDebug(root);
+    this.loadTempleInteriorSpriteSet(root);
     root.active = false;
+  }
+
+  private configureTempleInteriorObstacles() {
+    this.interiorObstacles = [
+      // Structural shell. The south wall is split so the existing doorway at
+      // x=0 remains the only approach to the exit trigger.
+      { x: -562, y: -34, w: 28, h: 496, name: '贞人卜室左墙' },
+      { x: 562, y: -34, w: 28, h: 496, name: '贞人卜室右墙' },
+      { x: -404, y: 184, w: 288, h: 72, name: '贞人卜室左后墙与墙角' },
+      { x: 404, y: 184, w: 288, h: 72, name: '贞人卜室右后墙与墙角' },
+      { x: -313, y: -277, w: 470, h: 20, name: '贞人卜室左侧南墙' },
+      { x: 313, y: -277, w: 470, h: 20, name: '贞人卜室右侧南墙' },
+
+      // Furniture rectangles use foot/ground projections. Tall transparent
+      // pixels (flames, jars, chair back) deliberately do not enlarge them.
+      { x: 0, y: 135, w: 520, h: 170, name: '后方木构主祭台' },
+      { x: -407, y: 36, w: 300, h: 226, name: '双列甲骨档案柜' },
+      { x: -335, y: -136, w: 118, h: 50, name: '左火盆石质底座' },
+      { x: 335, y: -136, w: 118, h: 50, name: '右火盆石质底座' },
+      { x: 466, y: 52, w: 220, h: 176, name: '右侧材料工具台' },
+      { x: 0, y: -102, w: 250, h: 108, name: '中央占卜案桌' },
+      // The visible chair content occupies roughly 88x104 inside its 94x112
+      // display node. This blocks ordinary walking through the back, seat,
+      // arms and feet while the scripted sit placement remains unrestricted.
+      { x: 0, y: -24, w: 88, h: 104, name: '指定占卜座椅接地范围' },
+    ];
+  }
+
+  private createTempleInteriorCollisionDebug(root: Node) {
+    const debugMode = game.config?.debugMode ?? DebugMode.NONE;
+    if (debugMode === DebugMode.NONE) return;
+    const debugNode = new Node('TempleInteriorCollisionDebug');
+    debugNode.parent = root;
+    debugNode.setPosition(0, 0, 130);
+    debugNode.addComponent(UITransform).setContentSize(1280, 720);
+    this.templeCollisionDebug = debugNode;
+    this.templeCollisionDebugGraphics = debugNode.addComponent(Graphics);
+    this.redrawTempleInteriorCollisionDebug();
+    this.runTempleCollisionDeterministicChecks();
+  }
+
+  private redrawTempleInteriorCollisionDebug() {
+    const graphics = this.templeCollisionDebugGraphics;
+    if (!graphics?.isValid) return;
+    graphics.clear();
+    graphics.lineWidth = 2;
+    graphics.strokeColor = new Color(88, 235, 149, 220);
+    const bounds = this.templeWalkBounds;
+    graphics.rect(bounds.left, bounds.bottom, bounds.right - bounds.left, bounds.top - bounds.bottom);
+    graphics.stroke();
+    for (const obstacle of this.interiorObstacles) {
+      // Orange is the authored furniture/structure footprint.
+      graphics.strokeColor = new Color(255, 153, 64, 230);
+      graphics.rect(obstacle.x - obstacle.w / 2, obstacle.y - obstacle.h / 2, obstacle.w, obstacle.h);
+      graphics.stroke();
+      // Magenta is the actual forbidden center region after Minkowski expansion
+      // by the player's 40x18 foot rectangle.
+      graphics.strokeColor = new Color(255, 71, 210, 220);
+      graphics.rect(
+        obstacle.x - obstacle.w / 2 - this.templeFootHalfWidth,
+        obstacle.y - obstacle.h / 2 - this.templeFootHalfHeight,
+        obstacle.w + this.templeFootHalfWidth * 2,
+        obstacle.h + this.templeFootHalfHeight * 2,
+      );
+      graphics.stroke();
+    }
+    // Cyan baselines are ground-contact sort lines, not collision edges.
+    graphics.strokeColor = new Color(69, 218, 255, 235);
+    [
+      { x: -407, y: -76, w: 300 },
+      { x: 0, y: -156, w: 250 },
+      { x: -335, y: -161, w: 118 },
+      { x: 335, y: -161, w: 118 },
+      { x: 466, y: -36, w: 220 },
+    ].forEach(line => {
+      graphics.moveTo(line.x - line.w / 2, line.y);
+      graphics.lineTo(line.x + line.w / 2, line.y);
+      graphics.stroke();
+    });
+    graphics.strokeColor = new Color(246, 207, 76, 230);
+    graphics.circle(this.templeSeatPoint.x, this.templeSeatPoint.y, 76);
+    graphics.stroke();
+    // Current foot rectangle and its exact sort point.
+    graphics.strokeColor = new Color(255, 255, 255, 235);
+    graphics.rect(
+      this.playerPos.x - this.templeFootHalfWidth,
+      this.playerPos.y - this.templeFootHalfHeight,
+      this.templeFootHalfWidth * 2,
+      this.templeFootHalfHeight * 2,
+    );
+    graphics.stroke();
+    graphics.fillColor = new Color(255, 255, 255, 245);
+    graphics.circle(this.playerPos.x, this.playerPos.y, 3);
+    graphics.fill();
+    if (this.templePreSitPosition) {
+      graphics.fillColor = new Color(104, 223, 255, 245);
+      graphics.circle(this.templePreSitPosition.x, this.templePreSitPosition.y, 5);
+      graphics.fill();
+    }
+    if (this.templeLastRisePosition) {
+      graphics.fillColor = new Color(116, 255, 126, 245);
+      graphics.circle(this.templeLastRisePosition.x, this.templeLastRisePosition.y, 5);
+      graphics.fill();
+    }
+    graphics.fillColor = new Color(82, 194, 255, 150);
+    graphics.circle(this.templeRiseSafePoint.x, this.templeRiseSafePoint.y, 5);
+    graphics.fill();
+  }
+
+  /**
+   * Loads the complete authored room as one transaction. Sprite nodes are
+   * created only after every required frame succeeds, so failures cannot leave
+   * a partially replaced room. No node here owns collision or interaction.
+   */
+  private loadTempleInteriorSpriteSet(root: Node) {
+    const paths = {
+      background: 'art/interior/divination_room/divination_room_background/spriteFrame',
+      table: 'art/interior/divination_room/divination_table/spriteFrame',
+      chair: 'art/interior/divination_room/divination_chair/spriteFrame',
+      brazier: 'art/interior/divination_room/divination_brazier/spriteFrame',
+      toolBench: 'art/interior/divination_room/divination_tool_bench/spriteFrame',
+      cabinetA: 'tiles/temple-oracle-cabinet-a-v1/spriteFrame',
+      cabinetB: 'tiles/temple-oracle-cabinet-b-v1/spriteFrame',
+    } as const;
+    const entries: Array<[keyof typeof paths, string]> = [
+      ['background', paths.background], ['table', paths.table], ['chair', paths.chair],
+      ['brazier', paths.brazier], ['toolBench', paths.toolBench],
+      ['cabinetA', paths.cabinetA], ['cabinetB', paths.cabinetB],
+    ];
+    const loadFrame = (path: string) => new Promise<SpriteFrame>((resolve, reject) => {
+      const cached = this.frameCache.get(path);
+      if (cached) {
+        resolve(cached);
+        return;
+      }
+      resources.load(path, SpriteFrame, (error, frame) => {
+        if (error || !frame) {
+          reject(new Error(`[YinXuCity] divination room SpriteFrame failed: ${path}; ${String(error ?? 'empty frame')}`));
+          return;
+        }
+        frame.texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
+        this.frameCache.set(path, frame);
+        resolve(frame);
+      });
+    });
+
+    Promise.all(entries.map(async ([key, path]) => [key, await loadFrame(path)] as const))
+      .then(loaded => {
+        if (!root.isValid || root !== this.templeInterior) return;
+        const frames = {} as Record<keyof typeof paths, SpriteFrame>;
+        loaded.forEach(([key, frame]) => { frames[key] = frame; });
+        // Keep furniture as direct room children, matching the existing render
+        // hierarchy so their z values remain comparable with the player (z=80).
+        this.createTempleSprite('TempleInteriorBackgroundSprite', frames.background, root, 0, 0, 1280, 720, 0);
+        const cabinetA = this.createTempleSprite('TempleInteriorOracleCabinetA', frames.cabinetA, root, -482, 47, 138, 245, 76);
+        const cabinetB = this.createTempleSprite('TempleInteriorOracleCabinetB', frames.cabinetB, root, -337, 47, 148, 240, 76);
+        const table = this.createTempleSprite('TempleInteriorDivinationTableSprite', frames.table, root, 0, -91, 250, 130, 76);
+        this.templeTableVisual = table;
+        const brazierLeft = this.createTempleSprite('TempleInteriorBrazierLeftSprite', frames.brazier, root, -335, -105, 124, 112, 76);
+        const brazierRight = this.createTempleSprite('TempleInteriorBrazierRightSprite', frames.brazier, root, 335, -105, 124, 112, 76);
+        const toolBench = this.createTempleSprite('TempleInteriorToolBenchSprite', frames.toolBench, root, 466, 52, 220, 176, 76);
+        [
+          { node: cabinetA, footY: -76, halfWidth: 69, coverHeight: 245 },
+          { node: cabinetB, footY: -76, halfWidth: 74, coverHeight: 245 },
+          { node: brazierLeft, footY: -161, halfWidth: 58, coverHeight: 112 },
+          { node: brazierRight, footY: -161, halfWidth: 58, coverHeight: 112 },
+          { node: toolBench, footY: -36, halfWidth: 104, coverHeight: 176 },
+        ].forEach(item => this.depthOccluders.push({ ...item, baseZ: 76, foregroundZ: 98 }));
+
+        // The interaction continues to use the existing hard-coded (0, -24)
+        // anchor. Only this visual child is attached to that immutable point.
+        const seatFunctionRoot = new Node('TempleInteriorDivinationSeatFunctionRoot');
+        seatFunctionRoot.parent = root;
+        seatFunctionRoot.setPosition(0, -24, 68);
+        seatFunctionRoot.addComponent(UITransform).setContentSize(94, 112);
+        this.createTempleSprite('TempleInteriorRitualChairVisual', frames.chair, seatFunctionRoot, 0, 0, 94, 112, 0);
+        this.templeChairVisualRoot = seatFunctionRoot;
+
+        // Establish the same chair/player/table order used by every subsequent
+        // frame before the authored nodes replace the legacy room.
+        if (this.player?.isValid && this.player.parent === root) this.updateTreeDepthOrdering();
+        else this.updateTempleSeatDepthOrdering();
+        this.templeCollisionDebug?.setSiblingIndex(root.children.length - 1);
+        console.info('[YinXuCity] divination room authored SpriteFrames ready:', entries.map(([, path]) => path).join(', '));
+      })
+      .catch(error => {
+        console.error('[YinXuCity] divination room authored art was not activated; no room sprites were created.', error);
+      });
+  }
+
+  private createTempleSprite(
+    name: string,
+    frame: SpriteFrame,
+    parent: Node,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    z: number,
+  ) {
+    const node = new Node(name);
+    node.parent = parent;
+    node.setPosition(x, y, z);
+    node.addComponent(UITransform).setContentSize(width, height);
+    const sprite = node.addComponent(Sprite);
+    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    sprite.spriteFrame = frame;
+    frame.texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
+    return node;
+  }
+
+  private updateTempleSeatDepthOrdering() {
+    const chair = this.templeChairVisualRoot;
+    const table = this.templeTableVisual;
+    if (!chair?.isValid || !table?.isValid || chair.parent !== table.parent) return;
+
+    const playerIsInRoom = this.player?.isValid && this.player.parent === table.parent;
+    // The player node is its foot point. North/above the table foot line means
+    // the tabletop must cover the actor; south of it the actor is in front.
+    const playerOverlapsTable = Math.abs(this.playerPos.x) <= 125 + this.templeFootHalfWidth;
+    const tableCoversPlayer = playerIsInRoom && (this.seated
+      || (playerOverlapsTable && this.playerPos.y >= -156));
+    chair.setPosition(chair.position.x, chair.position.y, 68);
+    table.setPosition(table.position.x, table.position.y, tableCoversPlayer ? 98 : 76);
+
+    const ensureBefore = (earlier: Node, later: Node) => {
+      if (earlier.getSiblingIndex() > later.getSiblingIndex()) earlier.setSiblingIndex(later.getSiblingIndex());
+    };
+    if (!playerIsInRoom) {
+      ensureBefore(chair, table);
+      return;
+    }
+    if (tableCoversPlayer) {
+      ensureBefore(chair, this.player);
+      ensureBefore(this.player, table);
+      // The first move can shift the other pair; normalize once more.
+      ensureBefore(chair, this.player);
+    } else {
+      ensureBefore(chair, table);
+      ensureBefore(table, this.player);
+      ensureBefore(chair, table);
+    }
   }
 
   private enterTempleInterior() {
@@ -1455,6 +1440,7 @@ export class YinXuCity extends Component {
     this.player.setPosition(0, -265, 80);
     this.facing = 'up'; this.displayedPlayerFrame = -1; this.showPlayerFrame(0);
     this.world.active = false;
+    this.updateTreeDepthOrdering();
     this.templeInterior.active = true;
     if (this.weatherParticleNode?.isValid) this.weatherParticleNode.active = false;
   }
@@ -3024,7 +3010,9 @@ export class YinXuCity extends Component {
   private animatePlayer(moving: boolean, direction: Vec2, movedDistance: number) {
     if (this.seated) {
       this.walkPhase = 0;
-      this.facing = 'up';
+      // `down-*` is the front-facing sheet in the actual character resource;
+      // screen-down is the room entrance direction.
+      this.facing = 'down';
       this.showPlayerFrame(0);
       this.playerVisual.setPosition(0, 17, 4);
       this.playerVisual.setScale(.9, .78, 1);
@@ -3822,14 +3810,18 @@ export class YinXuCity extends Component {
   private updateTreeDepthOrdering() {
     const actors: Array<{ x: number; y: number }> = [{ x: this.playerPos.x, y: this.playerPos.y }];
     this.villagers.forEach(villager => {
-      if (villager.root.isValid) actors.push({ x: villager.root.position.x, y: villager.root.position.y });
+      if (villager.root.isValid && villager.root.parent === this.player.parent) {
+        actors.push({ x: villager.root.position.x, y: villager.root.position.y });
+      }
     });
     this.horseCarts.forEach(cart => {
-      if (cart.root.isValid) actors.push({ x: cart.root.position.x, y: cart.root.position.y });
+      if (cart.root.isValid && cart.root.parent === this.player.parent) {
+        actors.push({ x: cart.root.position.x, y: cart.root.position.y });
+      }
     });
 
     for (const tree of this.depthTrees) {
-      if (!tree.node.isValid) continue;
+      if (!tree.node.isValid || tree.node.parent !== this.player.parent) continue;
       const treeX = tree.node.position.x;
       const playerOverlaps = Math.abs(this.playerPos.x - treeX) <= tree.halfWidth;
       const playerBehind = playerOverlaps
@@ -3854,7 +3846,7 @@ export class YinXuCity extends Component {
       const playerIndex = this.player.getSiblingIndex();
       const treeIndex = tree.node.getSiblingIndex();
       if (actorBehindCanopy && treeIndex < playerIndex) {
-        tree.node.setSiblingIndex(this.world.children.length - 1);
+        tree.node.setSiblingIndex((tree.node.parent?.children.length ?? 1) - 1);
       } else if (!actorBehindCanopy && treeIndex > playerIndex) {
         tree.node.setSiblingIndex(playerIndex);
       }
@@ -3863,9 +3855,10 @@ export class YinXuCity extends Component {
     // The same foot-line rule applies to architecture and solid props. Only
     // the visual node changes layers; collision always remains at its base.
     for (const occluder of this.depthOccluders) {
-      if (!occluder.node.isValid) continue;
+      if (!occluder.node.isValid || occluder.node.parent !== this.player.parent) continue;
       const objectX = occluder.node.position.x;
-      const playerOverlaps = Math.abs(this.playerPos.x - objectX) <= occluder.halfWidth;
+      const playerProjection = this.worldMode === 'templeInterior' ? this.templeFootHalfWidth : 0;
+      const playerOverlaps = Math.abs(this.playerPos.x - objectX) <= occluder.halfWidth + playerProjection;
       const playerBehind = playerOverlaps
         && this.playerPos.y >= occluder.footY - 4
         && this.playerPos.y <= occluder.footY + occluder.coverHeight;
@@ -3882,7 +3875,7 @@ export class YinXuCity extends Component {
       const playerIndex = this.player.getSiblingIndex();
       const objectIndex = occluder.node.getSiblingIndex();
       if (actorBehind && objectIndex < playerIndex) {
-        occluder.node.setSiblingIndex(this.world.children.length - 1);
+        occluder.node.setSiblingIndex((occluder.node.parent?.children.length ?? 1) - 1);
       } else if (!actorBehind && objectIndex > playerIndex) {
         occluder.node.setSiblingIndex(playerIndex);
       }
@@ -3891,8 +3884,12 @@ export class YinXuCity extends Component {
     // Gate beams and bridge railings are intentionally split foreground
     // pieces. They must stay above every actor regardless of nearby props.
     this.fixedForegroundNodes.forEach(node => {
-      if (node.isValid) node.setSiblingIndex(this.world.children.length - 1);
+      if (node.isValid && node.parent === this.player.parent) node.setSiblingIndex((node.parent?.children.length ?? 1) - 1);
     });
+    this.updateTempleSeatDepthOrdering();
+    if (this.templeCollisionDebug?.isValid && this.templeCollisionDebug.parent === this.player.parent) {
+      this.templeCollisionDebug.setSiblingIndex((this.templeCollisionDebug.parent?.children.length ?? 1) - 1);
+    }
   }
 
   private updateTorches(dt: number) {
@@ -3989,18 +3986,81 @@ export class YinXuCity extends Component {
   }
 
   private canPlayerStand(x: number, y: number) {
-    if (this.worldMode === 'templeInterior') {
-      if (x < -548 || x > 548 || y < -282 || y > 214) return false;
-      for (const obstacle of this.interiorObstacles) {
-        if (x + this.playerRadius > obstacle.x - obstacle.w / 2
-          && x - this.playerRadius < obstacle.x + obstacle.w / 2
-          && y + this.playerRadius > obstacle.y - obstacle.h / 2
-          && y - this.playerRadius < obstacle.y + obstacle.h / 2) return false;
-      }
-      return true;
-    }
+    if (this.worldMode === 'templeInterior') return this.isTempleFootprintClear(x, y);
     return this.canStandRadius(x, y, this.playerRadius)
       && this.isDynamicClear(x, y, this.actorRadius, null);
+  }
+
+  private isTempleFootprintClear(x: number, y: number) {
+    const bounds = this.templeWalkBounds;
+    if (x - this.templeFootHalfWidth < bounds.left || x + this.templeFootHalfWidth > bounds.right
+      || y - this.templeFootHalfHeight < bounds.bottom || y + this.templeFootHalfHeight > bounds.top) return false;
+    return !this.interiorObstacles.some(obstacle => this.templeFootOverlapsObstacle(x, y, obstacle));
+  }
+
+  private templeFootOverlapsObstacle(x: number, y: number, obstacle: RectObstacle) {
+    return x + this.templeFootHalfWidth > obstacle.x - obstacle.w / 2
+      && x - this.templeFootHalfWidth < obstacle.x + obstacle.w / 2
+      && y + this.templeFootHalfHeight > obstacle.y - obstacle.h / 2
+      && y - this.templeFootHalfHeight < obstacle.y + obstacle.h / 2;
+  }
+
+  private runTempleCollisionDeterministicChecks() {
+    const find = (name: string) => this.interiorObstacles.find(obstacle => obstacle.name.includes(name));
+    const checks: Array<{ name: string; x: number; y: number }> = [];
+    const addEdgeChecks = (label: string, obstacle: RectObstacle | undefined) => {
+      if (!obstacle) return;
+      const left = obstacle.x - obstacle.w / 2 - this.templeFootHalfWidth + 1;
+      const right = obstacle.x + obstacle.w / 2 + this.templeFootHalfWidth - 1;
+      const bottom = obstacle.y - obstacle.h / 2 - this.templeFootHalfHeight + 1;
+      const top = obstacle.y + obstacle.h / 2 + this.templeFootHalfHeight - 1;
+      checks.push(
+        { name: `${label}:left`, x: left, y: obstacle.y },
+        { name: `${label}:right`, x: right, y: obstacle.y },
+        { name: `${label}:bottom`, x: obstacle.x, y: bottom },
+        { name: `${label}:top`, x: obstacle.x, y: top },
+        { name: `${label}:lower-left-diagonal`, x: left, y: bottom },
+        { name: `${label}:lower-right-diagonal`, x: right, y: bottom },
+        { name: `${label}:upper-left-diagonal`, x: left, y: top },
+        { name: `${label}:upper-right-diagonal`, x: right, y: top },
+        { name: `${label}:center-gap`, x: obstacle.x, y: obstacle.y },
+      );
+    };
+    addEdgeChecks('left-brazier', find('左火盆'));
+    addEdgeChecks('right-brazier', find('右火盆'));
+    addEdgeChecks('cabinet-pair', find('双列甲骨'));
+    addEdgeChecks('divination-table', find('中央占卜案桌'));
+    addEdgeChecks('tool-bench', find('右侧材料工具台'));
+    addEdgeChecks('divination-chair', find('指定占卜座椅'));
+    // Explicit authored details called out by the acceptance screenshots.
+    [-542, -421, -397, -274].forEach((x, index) => checks.push({ name: `cabinet-foot-${index + 1}`, x, y: -75 }));
+    checks.push(
+      { name: 'cabinet-center-seam', x: -410, y: -75 },
+      { name: 'table-left-leg', x: -105, y: -150 },
+      { name: 'table-right-leg', x: 105, y: -150 },
+      { name: 'table-between-legs', x: 0, y: -150 },
+      { name: 'tool-bench-left-leg', x: 370, y: -32 },
+      { name: 'tool-bench-right-leg', x: 548, y: -32 },
+      { name: 'tool-bench-between-legs', x: 466, y: -32 },
+    );
+    const failures = checks.filter(check => this.isTempleFootprintClear(check.x, check.y));
+    if (failures.length > 0) console.error('[YinXuCity] temple collision edge checks failed:', failures);
+    else console.info(`[YinXuCity] temple collision edge checks passed: ${checks.length}`);
+  }
+
+  private moveTemplePlayerWithCollision(dx: number, dy: number) {
+    // Fixed-size sweep steps prevent a long frame from jumping across a thin
+    // brazier base or table edge. Axis separation retains the existing smooth
+    // wall-sliding behaviour and does not change movement speed or input.
+    const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 4));
+    const stepX = dx / steps;
+    const stepY = dy / steps;
+    for (let index = 0; index < steps; index++) {
+      if (this.canPlayerStand(this.playerPos.x + stepX, this.playerPos.y)) this.playerPos.x += stepX;
+      else if (Math.abs(stepX) > .01) this.blocked = true;
+      if (this.canPlayerStand(this.playerPos.x, this.playerPos.y + stepY)) this.playerPos.y += stepY;
+      else if (Math.abs(stepY) > .01) this.blocked = true;
+    }
   }
 
   private canNpcStep(fromX: number, fromY: number, x: number, y: number, radius: number, self: Node) {
@@ -4503,14 +4563,19 @@ export class YinXuCity extends Component {
 
   private beginDivination() {
     if (this.worldMode !== 'templeInterior' || !this.templeInterior?.isValid) return;
+    this.templePreSitPosition = this.playerPos.clone();
+    this.templePreSitFacing = this.facing;
+    this.templePreSitWorldMode = this.worldMode;
+    this.templeLastRisePosition = null;
     this.stopPlayerInput();
     this.overlay = 'divination';
     this.seated = true;
-    this.playerPos.set(0, -24);
-    this.player.setPosition(0, -24, 80);
-    this.facing = 'up';
+    this.playerPos.set(this.templeSeatPoint.x, this.templeSeatPoint.y);
+    this.player.setPosition(this.templeSeatPoint.x, this.templeSeatPoint.y, 80);
+    this.facing = 'down';
     this.displayedPlayerFrame = -1;
     this.showPlayerFrame(0);
+    this.updateTempleSeatDepthOrdering();
     this.currentQuestion = null;
     this.currentAttempts = 0;
     this.divinationStage = 'waiting';
@@ -4999,9 +5064,51 @@ export class YinXuCity extends Component {
     this.overlay = 'none';
     this.divinationStage = 'none';
     this.currentQuestion = null;
-    this.playerPos.set(0, -152);
-    this.player.setPosition(0, -152, 80);
+    const risePoint = this.resolveTempleRisePoint();
+    this.templeLastRisePosition = risePoint.clone();
+    this.playerPos.set(risePoint.x, risePoint.y);
+    this.player.setPosition(risePoint.x, risePoint.y, 80);
+    this.facing = this.templePreSitFacing;
+    this.displayedPlayerFrame = -1;
+    this.showPlayerFrame(0);
+    this.animatePlayer(false, new Vec2(), 0);
+    this.updateTempleSeatDepthOrdering();
     this.destroyOverlayRoot();
+  }
+
+  private resolveTempleRisePoint() {
+    const origin = this.templePreSitWorldMode === 'templeInterior' && this.templePreSitPosition
+      ? this.templePreSitPosition
+      : null;
+    const candidates: Vec2[] = [];
+    if (origin) {
+      // Restore the exact approach point first, then make small lateral moves
+      // that preserve the player's perceived place beside the chair.
+      candidates.push(
+        origin.clone(),
+        new Vec2(origin.x - 24, origin.y), new Vec2(origin.x + 24, origin.y),
+        new Vec2(origin.x - 40, origin.y), new Vec2(origin.x + 40, origin.y),
+      );
+    }
+    candidates.push(new Vec2(-70, -24), new Vec2(70, -24));
+    if (origin) {
+      const nearby: Vec2[] = [];
+      for (const radius of [24, 40, 56, 72, 88]) {
+        for (const [dx, dy] of [[-radius, 0], [radius, 0], [0, -radius], [0, radius],
+          [-radius, -radius], [radius, -radius], [-radius, radius], [radius, radius]]) {
+          nearby.push(new Vec2(origin.x + dx, origin.y + dy));
+        }
+      }
+      nearby.sort((a, b) => Vec2.distance(a, origin) - Vec2.distance(b, origin));
+      candidates.push(...nearby);
+    }
+    candidates.push(
+      this.templeRiseSafePoint,
+      new Vec2(-145, -185),
+      new Vec2(145, -185),
+      new Vec2(0, -220),
+    );
+    return candidates.find(point => this.canPlayerStand(point.x, point.y)) ?? this.templeRiseSafePoint;
   }
 
   private stopPlayerInput() {
@@ -5605,7 +5712,7 @@ export class YinXuCity extends Component {
     if (this.overlay === 'none' && !this.seated) {
       if (this.worldMode === 'templeInterior') {
         if (Math.hypot(x, y + 265) <= 76) this.actionKind = 'templeExit';
-        else if (Math.hypot(x, y + 24) <= 76) this.actionKind = 'templeSeat';
+        else if (Math.hypot(x - this.templeSeatPoint.x, y - this.templeSeatPoint.y) <= 76) this.actionKind = 'templeSeat';
       } else if (Math.hypot(x, y - 1010) <= 105) this.actionKind = 'temple';
       else if (Math.hypot(x - 1030, y - 510) <= 150) this.actionKind = 'shop';
     }
