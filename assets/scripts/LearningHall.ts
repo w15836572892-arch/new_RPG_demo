@@ -345,37 +345,40 @@ export class LearningHall extends Component {
   }
 
   private drawCharacterCard(root: Node, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
-    const profile = this.callbacks!.getProfile();
     const rankIdx = this.currentRank();
     const w = this.vh(0.22), h = this.vh(0.30);
     const node = this.graphics(root, 'HallCharacterCard', x, y, w, h, 3);
     node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 14); node.fill();
     node.strokeColor = t.cardStroke; node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 13); node.stroke();
-    const av = AVATARS.find(a => a.id === profile.avatarId) ?? AVATARS[0];
-    const avR = this.vh(0.055);
-    const avY = y + this.vh(0.100);
+    // 小人头像：浅米圆背景 + Sprite（像素风用 NEAREST）
+    const avR = this.vh(0.058);
+    const avY = y + this.vh(0.112);
     const avBg = this.graphics(root, 'HallCharAvatarBg', x, avY, avR * 2, avR * 2, 5);
     avBg.fillColor = new Color(255, 245, 220, 230); avBg.circle(0, 0, avR); avBg.fill();
     avBg.strokeColor = new Color(180, 130, 70, 200); avBg.lineWidth = 2; avBg.circle(0, 0, avR - 2); avBg.stroke();
-    this.label(root, 'HallCharEmoji', av.emoji, x, avY, avR * 2 - 6, avR * 2 - 6, avR * 1.2, new Color(120, 80, 40), 'center', 6);
-    this.label(root, 'HallCharName', profile.playerName || '少年卜官', x, y + this.vh(0.028), 170, 24, 17, t.goldInk, 'center', 6);
-    this.label(root, 'HallCharRole', '殷墟小卜官', x, y + this.vh(0.002), 150, 18, 11, t.goldSub, 'center', 6);
+    const avatar = new Node('HallCharAvatar'); avatar.parent = root; avatar.setPosition(x, avY, 6);
+    const avSize = avR * 1.6;
+    avatar.addComponent(UITransform).setContentSize(avSize, avSize);
+    const avatarSprite = avatar.addComponent(Sprite); avatarSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    this.loadSprite('characters/oracle-apprentice/down-0/spriteFrame', avatar, avatarSprite, false);
+    // 去掉了“少年卜官”名字，只保留角色身份、段位进度与提示
+    this.label(root, 'HallCharRole', '殷墟小卜官', x, y + this.vh(0.022), 150, 20, 13, t.goldInk, 'center', 6);
     const nextRank = RANKS[Math.min(rankIdx + 1, RANKS.length - 1)];
     const need = Math.max(0, nextRank.threshold - this.progress().experience);
     const rankTip = rankIdx >= RANKS.length - 1 ? '已达最高段位' : `距${nextRank.name}还需 ${need} 经验`;
-    this.label(root, 'HallCharRankTip', rankTip, x, y - this.vh(0.034), 170, 20, 11, t.goldSub, 'center', 6);
+    this.label(root, 'HallCharRankTip', rankTip, x, y - this.vh(0.020), 170, 20, 11, t.goldSub, 'center', 6);
     // 段位经验条（对齐 .rbar：底 rgba(70,55,40,.5) 填充 #d9a85a）
     const prevThreshold = RANKS[rankIdx].threshold;
     const pct = rankIdx >= RANKS.length - 1 ? 1 : Math.min(1, Math.max(0, (this.progress().experience - prevThreshold) / (nextRank.threshold - prevThreshold)));
     const barW = this.vh(0.18), barH = 6;
-    const barY = y - this.vh(0.054);
+    const barY = y - this.vh(0.046);
     const barBg = this.graphics(root, 'HallCharRankBarBg', x, barY, barW, barH, 5);
     barBg.fillColor = new Color(70, 55, 40, 128); barBg.roundRect(-barW / 2, -barH / 2, barW, barH, 3); barBg.fill();
     if (pct > 0) {
       const barFill = this.graphics(root, 'HallCharRankBarFill', x - barW / 2 + (barW * pct) / 2, barY, barW * pct, barH, 6);
       barFill.fillColor = new Color(217, 168, 90, 255); barFill.roundRect(-(barW * pct) / 2, -barH / 2, barW * pct, barH, 3); barFill.fill();
     }
-    this.label(root, 'HallCharHint', '点击查看五阶段位', x, y - this.vh(0.090), 160, 18, 11, t.goldSub, 'center', 6);
+    this.label(root, 'HallCharHint', '点击查看五阶段位', x, y - this.vh(0.082), 160, 18, 11, t.goldSub, 'center', 6);
   }
 
   private drawEnterYinXu(root: Node, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
