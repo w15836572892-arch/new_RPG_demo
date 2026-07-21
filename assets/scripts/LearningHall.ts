@@ -233,10 +233,10 @@ export class LearningHall extends Component {
     const cards = this.cards(); const total = cards.length; const collected = cards.filter(card => card.unlocked).length;
     const t = this.theme();
     this.drawTopBar(root, t);
-    this.drawCharacterCard(root, -440, 10, t);
-    this.drawEnterYinXu(root, 10, 60, t);
-    this.drawReviewSuggestion(root, 10, -150, t);
-    this.drawCodexEntry(root, total, collected, 450, 10, t);
+    this.drawCharacterCard(root, -430, -20, t);
+    this.drawEnterYinXu(root, 0, 10, t);
+    this.drawReviewSuggestion(root, 430, 55, t);
+    this.drawCodexEntry(root, total, collected, 430, -135, t);
     this.drawBottomNav(root, 'home', t);
   }
 
@@ -286,7 +286,10 @@ export class LearningHall extends Component {
     this.loadSprite(av.path, avatarNode, avatarSprite, true);
     this.label(root, 'HallPlayerName', profile.playerName || '少年卜官', -505, 314, 260, 34, 26, t.ink, 'left', 6);
     this.drawRankBadge(root, rankIdx, -505, 272, t);
-    this.drawCurrencies(root, progress, 210, 300, t);
+    const collected = this.cards().filter(c => c.unlocked).length;
+    this.label(root, 'HallCollectedHint', `已积 ${collected} 字`, -410, 250, 140, 22, 14, t.sub, 'left', 6);
+    this.drawCurrencies(root, progress, 150, 300, t);
+    this.button(root, 'HallParentBtn', '家长', 545, 300, 90, 46, false);
   }
 
   private drawRankBadge(root: Node, rankIdx: number, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
@@ -319,75 +322,89 @@ export class LearningHall extends Component {
   private drawCharacterCard(root: Node, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
     const profile = this.callbacks!.getProfile();
     const rankIdx = this.currentRank();
-    const w = 300, h = 220;
+    const w = 300, h = 260;
     const node = this.graphics(root, 'HallCharacterCard', x, y, w, h, 3);
     node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 20); node.fill();
     node.strokeColor = t.cardStroke; node.lineWidth = 3; node.roundRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4, 18); node.stroke();
     const av = AVATARS.find(a => a.id === profile.avatarId) ?? AVATARS[0];
-    const aNode = new Node('HallCharAvatar'); aNode.parent = root; aNode.setPosition(x, y + 52, 5);
+    const aNode = new Node('HallCharAvatar'); aNode.parent = root; aNode.setPosition(x, y + 62, 5);
     aNode.addComponent(UITransform).setContentSize(84, 84);
     const aSprite = aNode.addComponent(Sprite); aSprite.sizeMode = Sprite.SizeMode.CUSTOM;
     this.loadSprite(av.path, aNode, aSprite, true);
     const rank = RANKS[rankIdx];
-    this.label(root, 'HallCharName', '殷墟小卜官', x, y - 6, 260, 30, 22, t.ink, 'center', 6);
-    this.label(root, 'HallCharRank', `段位 · ${rank.name}`, x, y - 40, 250, 24, 16, this.hexToColor(rank.bd, 255), 'center', 6);
-    this.label(root, 'HallCharHint', '点击查看五阶 ›', x, y - 74, 240, 22, 14, t.sub, 'center', 6);
+    this.label(root, 'HallCharName', '殷墟小卜官', x, y + 4, 260, 30, 22, t.ink, 'center', 6);
+    this.label(root, 'HallCharRank', `段位 · ${rank.name}`, x, y - 34, 250, 24, 16, this.hexToColor(rank.bd, 255), 'center', 6);
+    const exp = this.progress().experience;
+    const nextThreshold = RANKS[Math.min(rankIdx + 1, RANKS.length - 1)].threshold;
+    const need = Math.max(0, nextThreshold - exp);
+    this.label(root, 'HallCharExp', `距${rankIdx >= RANKS.length - 1 ? '满阶' : RANKS[rankIdx + 1].name}还差 ${need} 经验`, x, y - 68, 260, 22, 14, t.sub, 'center', 6);
+    this.label(root, 'HallCharHint', '点击查看五阶 ›', x, y - 102, 240, 22, 14, t.sub, 'center', 6);
   }
 
   private drawEnterYinXu(root: Node, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
-    const r = 105;
+    const r = 95;
+    this.label(root, 'HallEnterSupertitle', '殷商寻字', x, y + r + 42, 260, 34, 26, t.ink, 'center', 6);
     const node = this.graphics(root, 'HallEnterYinXu', x, y, r * 2, r * 2, 4);
     node.fillColor = new Color(157, 64, 47, 240); node.circle(0, 0, r); node.fill();
     node.strokeColor = new Color(255, 220, 153, 235); node.lineWidth = 5; node.circle(0, 0, r - 6); node.stroke();
-    this.label(root, 'HallEnterGlyph', '殷', x, y + 22, 96, 96, 54, new Color(255, 244, 210), 'center', 6);
-    this.label(root, 'HallEnterTitle', '进入殷墟', x, y - 66, 200, 36, 24, new Color(255, 248, 224), 'center', 6);
+    this.label(root, 'HallEnterTitle', '进入殷墟', x, y - 10, 200, 36, 24, new Color(255, 248, 224), 'center', 6);
+    this.label(root, 'HallEnterSub', '探索殷墟、收集甲骨，从三千年前开始', x, y - r - 38, 360, 26, 14, t.sub, 'center', 6);
   }
 
   private drawReviewSuggestion(root: Node, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
     const weakIds = this.callbacks?.getWeakCards() ?? [];
     const weak = weakIds.map(id => this.cards().find(c => c.id === id)).filter((c): c is HallCard => !!c).slice(0, 3);
-    const w = 340, h = 150;
+    const w = 270, h = 130;
     const node = this.graphics(root, 'HallReviewSug', x, y, w, h, 3);
     node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 18); node.fill();
     node.strokeColor = new Color(88, 118, 167); node.lineWidth = 3; node.roundRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4, 16); node.stroke();
-    this.label(root, 'HallSugTitle', '建议复习', x - w / 2 + 18, y + 48, 200, 28, 20, t.ink, 'left', 6);
+    this.label(root, 'HallSugTitle', '建议复习', x - w / 2 + 16, y + 44, 120, 26, 18, t.ink, 'left', 6);
+    this.label(root, 'HallSugCount', `易错 ${weak.length} 字`, x + w / 2 - 16, y + 44, 110, 24, 14, t.sub, 'right', 6);
     if (weak.length === 0) {
-      this.label(root, 'HallSugEmpty', '暂无需复习的字，去殷墟多收集吧', x, y - 12, w - 30, 40, 14, t.sub, 'center', 6);
+      this.label(root, 'HallSugEmpty', '暂无需复习', x, y - 6, w - 30, 30, 14, t.sub, 'center', 6);
     } else {
-      weak.forEach((card, i) => { this.oracleGlyph(root, `HallSugGlyph-${i}`, card, x - w / 2 + 44 + i * 66, y - 16, 44, 52, 6); });
+      weak.forEach((card, i) => { this.oracleGlyph(root, `HallSugGlyph-${i}`, card, x - 78 + i * 78, y - 8, 44, 52, 6); });
     }
-    this.button(root, 'HallSugGo', '去复习 ›', x + w / 2 - 70, y - 48, 120, 40, true);
+    this.button(root, 'HallSugGo', '去复习 ›', x + w / 2 - 58, y - 36, 100, 34, true);
   }
 
   private drawCodexEntry(root: Node, total: number, collected: number, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
-    const w = 300, h = 220;
+    const w = 270, h = 130;
     const node = this.graphics(root, 'HallCodexEntry', x, y, w, h, 3);
-    node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 20); node.fill();
-    node.strokeColor = new Color(104, 82, 145); node.lineWidth = 3; node.roundRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4, 18); node.stroke();
-    this.label(root, 'HallCodexEntryTitle', '甲骨图鉴', x, y + 62, 250, 32, 24, t.ink, 'center', 6);
-    this.label(root, 'HallCodexEntryCount', `${collected} / ${total}`, x, y + 20, 240, 40, 30, this.hexToColor('#b080d0', 255), 'center', 6);
-    this.label(root, 'HallCodexEntrySub', '已收集真实字形', x, y - 18, 230, 22, 14, t.sub, 'center', 6);
-    this.button(root, 'HallCodexEntryGo', '查看图鉴 ›', x, y - 78, 170, 42, false);
+    node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 18); node.fill();
+    node.strokeColor = new Color(104, 82, 145); node.lineWidth = 3; node.roundRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4, 16); node.stroke();
+    this.label(root, 'HallCodexEntryTitle', '图鉴进度', x - w / 2 + 16, y + 42, 120, 26, 18, t.ink, 'left', 6);
+    this.label(root, 'HallCodexEntryCount', `${collected} / ${total}`, x + 16, y + 6, 160, 40, 28, this.hexToColor('#b080d0', 255), 'right', 6);
+    const barW = 230, barH = 10; const pct = total > 0 ? collected / total : 0;
+    const barBg = this.graphics(root, 'HallCodexBarBg', x, y - 28, barW, barH, 5);
+    barBg.fillColor = new Color(80, 72, 88, 180); barBg.roundRect(-barW / 2, -barH / 2, barW, barH, 5); barBg.fill();
+    if (pct > 0) {
+      const barFill = this.graphics(root, 'HallCodexBarFill', x - barW / 2 + (barW * pct) / 2, y - 28, barW * pct, barH, 6);
+      barFill.fillColor = this.hexToColor('#c8a0e8', 220); barFill.roundRect(-(barW * pct) / 2, -barH / 2, barW * pct, barH, 5); barFill.fill();
+    }
+    this.label(root, 'HallCodexEntryPct', `${Math.round(pct * 100)}%`, x + w / 2 - 16, y - 28, 50, 22, 13, t.sub, 'right', 6);
+    this.button(root, 'HallCodexEntryGo', '查看图鉴 ›', x + w / 2 - 58, y - 42, 100, 32, false);
   }
 
   private drawBottomNav(root: Node, mode: HallMode, t: ReturnType<LearningHall['theme']>) {
-    const items: Array<[HallMode, string, boolean]> = [
-      ['home', '大厅', mode === 'home'],
-      ['review', '复习', mode === 'review' || mode === 'reviewResult'],
-      ['codex', '图鉴', mode === 'codex'],
-      ['progress', '进度', mode === 'progress'],
-      ['parent', '任务', mode === 'parent'],
-      ['settings', '设置', mode === 'settings'],
+    const items: Array<[HallMode, string, string, boolean]> = [
+      ['home', '🏠', '大厅', mode === 'home'],
+      ['review', '📖', '复习', mode === 'review' || mode === 'reviewResult'],
+      ['codex', '🏺', '图鉴', mode === 'codex'],
+      ['parent', '⭐', '任务', mode === 'parent'],
+      ['progress', '📈', '进度', mode === 'progress'],
+      ['settings', '⚙', '设置', mode === 'settings'],
     ];
-    const y = -318; const gap = 188; const startX = -470;
-    items.forEach(([m, label, active], i) => {
+    const y = -305; const gap = 160; const startX = -400;
+    items.forEach(([m, icon, label, active], i) => {
       const x = startX + i * gap;
-      const w = 150, h = 54;
+      const w = 84, h = 84;
       const node = this.graphics(root, `HallNav-${i}`, x, y, w, h, 5);
       node.fillColor = active ? new Color(157, 64, 47, 245) : t.card;
-      node.roundRect(-w / 2, -h / 2, w, h, 14); node.fill();
-      node.strokeColor = active ? new Color(255, 220, 153) : t.cardStroke; node.lineWidth = 2; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 13); node.stroke();
-      this.label(root, `HallNavLabel-${i}`, label, x, y, w - 10, 30, 20, active ? new Color(255, 244, 224) : t.ink, 'center', 6);
+      node.roundRect(-w / 2, -h / 2, w, h, 22); node.fill();
+      node.strokeColor = active ? new Color(255, 220, 153) : t.cardStroke; node.lineWidth = 2; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 21); node.stroke();
+      this.label(root, `HallNavIcon-${i}`, icon, x, y + 10, w - 8, 36, 26, active ? new Color(255, 244, 224) : t.ink, 'center', 6);
+      this.label(root, `HallNavLabel-${i}`, label, x, y - 26, w - 8, 22, 15, active ? new Color(255, 244, 224) : t.ink, 'center', 6);
     });
   }
 
@@ -683,16 +700,17 @@ export class LearningHall extends Component {
       return;
     }
     if (this.mode === 'home') {
-      if (this.hit(x, y, 10, 60, 210, 210)) { this.callbacks?.enterYinXu(); this.close(); }
-      else if (this.hit(x, y, -440, 10, 300, 220)) this.render('ranks');
-      else if (this.hit(x, y, 10, -150, 340, 150)) this.openReviewLibrary();
-      else if (this.hit(x, y, 450, 10, 300, 220)) this.render('codex');
-      else if (this.hit(x, y, -470, -318, 150, 54)) this.render('home');
-      else if (this.hit(x, y, -282, -318, 150, 54)) this.openReviewLibrary();
-      else if (this.hit(x, y, -94, -318, 150, 54)) this.render('codex');
-      else if (this.hit(x, y, 94, -318, 150, 54)) this.render('progress');
-      else if (this.hit(x, y, 282, -318, 150, 54)) this.render('parent');
-      else if (this.hit(x, y, 470, -318, 150, 54)) this.render('settings');
+      if (this.hit(x, y, 0, 10, 190, 190)) { this.callbacks?.enterYinXu(); this.close(); }
+      else if (this.hit(x, y, -430, -20, 300, 260)) this.render('ranks');
+      else if (this.hit(x, y, 430, 55, 270, 130)) this.openReviewLibrary();
+      else if (this.hit(x, y, 430, -135, 270, 130)) this.render('codex');
+      else if (this.hit(x, y, 545, 300, 90, 46)) this.render('parent');
+      else if (this.hit(x, y, -400, -305, 84, 84)) this.render('home');
+      else if (this.hit(x, y, -240, -305, 84, 84)) this.openReviewLibrary();
+      else if (this.hit(x, y, -80, -305, 84, 84)) this.render('codex');
+      else if (this.hit(x, y, 80, -305, 84, 84)) this.render('parent');
+      else if (this.hit(x, y, 240, -305, 84, 84)) this.render('progress');
+      else if (this.hit(x, y, 400, -305, 84, 84)) this.render('settings');
       return;
     }
     if (this.mode === 'ranks') {
