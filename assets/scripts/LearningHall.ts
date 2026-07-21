@@ -361,12 +361,12 @@ export class LearningHall extends Component {
 
   private drawCharacterCard(root: Node, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
     const rankIdx = this.currentRank();
-    const w = this.vh(0.22), h = this.vh(0.30);
+    const w = this.vh(0.25), h = this.vh(0.34);
     const node = this.graphics(root, 'HallCharacterCard', x, y, w, h, 3);
     node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 14); node.fill();
     node.strokeColor = t.cardStroke; node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 13); node.stroke();
     // 小人头像：浅米圆背景 + Sprite（像素风用 NEAREST）
-    const avR = this.vh(0.064);
+    const avR = this.vh(0.070);
     const avY = y + this.vh(0.060);
     const avBg = this.graphics(root, 'HallCharAvatarBg', x, avY, avR * 2, avR * 2, 5);
     avBg.fillColor = new Color(255, 245, 220, 230); avBg.circle(0, 0, avR); avBg.fill();
@@ -950,7 +950,7 @@ export class LearningHall extends Component {
     }
     if (this.mode === 'home') {
       if (this.hitCircle(x, y, -16, -6, 72)) { this.callbacks?.enterYinXu(); this.close(); }
-      else if (this.hit(x, y, -442, -6, 158, 216)) this.render('ranks');
+      else if (this.hit(x, y, -442, -6, 180, 245)) this.render('ranks');
       else if (this.hit(x, y, 540, 109, 86, 30)) this.openReviewLibrary();
       else if (this.hit(x, y, 424, -77, 340, 112)) this.render('codex');
       else if (this.hit(x, y, 540, 320, 74, 30)) this.render('parent');
