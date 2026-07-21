@@ -776,34 +776,34 @@ export class LearningHall extends Component {
     close.strokeColor = t.night ? new Color(255, 210, 140, 120) : new Color(110, 76, 40, 120); close.lineWidth = 1; close.roundRect(-14, -14, 28, 28, 14); close.stroke();
     this.label(root, 'HallSetCloseX', '✕', 252, 288, 20, 20, 16, t.ink, 'center', 7);
     // sec1 头像与昵称（对齐 HTML 合并 section + .set-row 左标签右控件）
-    this.drawSettingsSection(root, 'HallSetSec1', 0, 196, 516, 156, t);
+    this.drawSettingsSection(root, 'HallSetSec1', 0, 196, 480, 156, t);
     this.drawSectionTitle(root, 'HallSetSec1Title', '头像与昵称', 258, t);
-    this.label(root, 'HallSetCurAvatarLabel', '当前头像', -198, 214, 120, 24, 13, t.ink, 'left', 7);
+    this.label(root, 'HallSetCurAvatarLabel', '当前头像', -176, 214, 120, 24, 13, t.ink, 'left', 7);
     const cur = AVATARS.find(a => a.id === profile.avatarId) ?? AVATARS[0];
-    this.drawAvatarCircle(root, 'HallSetCurAvatar', 10, 214, 22, cur.emoji, true, t, profile.avatarUrl);
+    this.drawAvatarCircle(root, 'HallSetCurAvatar', -10, 214, 22, cur.emoji, true, t, profile.avatarUrl);
     AVATARS.forEach((av, i) => {
-      const x = 60 + i * 44;
+      const x = 44 + i * 44;
       this.drawAvatarCircle(root, `HallSetAvatar-${i}`, x, 214, 18, av.emoji, av.id === profile.avatarId, t);
     });
     // 上传自定义头像按钮（+）
-    const uploadR = 18, uploadX = 60 + AVATARS.length * 44;
+    const uploadR = 18, uploadX = 44 + AVATARS.length * 44;
     const upNode = this.graphics(root, 'HallSetAvatarUpload', uploadX, 214, uploadR * 2, uploadR * 2, 5);
     upNode.fillColor = new Color(255, 250, 235, 255); upNode.circle(0, 0, uploadR); upNode.fill();
     upNode.strokeColor = new Color(180, 165, 145, 200); upNode.lineWidth = 2; upNode.circle(0, 0, uploadR - 2); upNode.stroke();
     this.label(root, 'HallSetAvatarUploadPlus', '+', uploadX, 214, uploadR * 2 - 6, uploadR * 2 - 6, 22, new Color(150, 120, 90), 'center', 6);
-    this.label(root, 'HallSetNameLabel', '昵称', -198, 162, 120, 24, 13, t.ink, 'left', 7);
+    this.label(root, 'HallSetNameLabel', '昵称', -176, 162, 120, 24, 13, t.ink, 'left', 7);
     this.drawNicknameInput(root, profile.playerName, 70, 162, t);
     // sec2 声音设置
-    this.drawSettingsSection(root, 'HallSetSec2', 0, 32, 516, 130, t);
+    this.drawSettingsSection(root, 'HallSetSec2', 0, 32, 480, 130, t);
     this.drawSectionTitle(root, 'HallSetSec2Title', '声音设置', 79, t);
-    this.drawToggle(root, 'music', '背景音乐', -158, 50, profile.musicOn, t);
-    this.drawToggle(root, 'sfx', '音效', -158, 14, profile.sfxOn, t);
+    this.drawToggle(root, 'music', '背景音乐', -136, 50, profile.musicOn, t);
+    this.drawToggle(root, 'sfx', '音效', -136, 14, profile.sfxOn, t);
     // sec3 显示
-    this.drawSettingsSection(root, 'HallSetSec3', 0, -104, 516, 84, t);
+    this.drawSettingsSection(root, 'HallSetSec3', 0, -104, 480, 84, t);
     this.drawSectionTitle(root, 'HallSetSec3Title', '显示', -77, t);
-    this.drawToggle(root, 'night', '夜间模式', -158, -104, profile.nightMode, t);
+    this.drawToggle(root, 'night', '夜间模式', -136, -104, profile.nightMode, t);
     // sec4 关于游戏
-    this.drawSettingsSection(root, 'HallSetSec4', 0, -208, 516, 84, t);
+    this.drawSettingsSection(root, 'HallSetSec4', 0, -208, 480, 84, t);
     this.drawSectionTitle(root, 'HallSetSec4Title', '关于游戏', -181, t);
     this.label(root, 'HallSetAboutText', '殷墟甲骨文学习工具 · 开发中\n版本 V3.1 · 新国风探索 RPG', 0, -216, 460, 44, 12, t.sub, 'center', 7);
   }
@@ -818,9 +818,9 @@ export class LearningHall extends Component {
 
   /** 小节标题：红左边框 + 文字（对齐 HTML .set-sec h4） */
   private drawSectionTitle(root: Node, name: string, text: string, y: number, t: ReturnType<LearningHall['theme']>) {
-    const bar = this.graphics(root, `${name}Bar`, -260, y, 3, 14, 7);
+    const bar = this.graphics(root, `${name}Bar`, -238, y, 3, 14, 7);
     bar.fillColor = new Color(200, 62, 44, 255); bar.roundRect(-1.5, -7, 3, 14, 1.5); bar.fill();
-    this.label(root, name, text, -158, y, 200, 22, 13, t.night ? new Color(255, 217, 138) : new Color(122, 74, 20), 'left', 7);
+    this.label(root, name, text, -136, y, 200, 22, 13, t.night ? new Color(255, 217, 138) : new Color(122, 74, 20), 'left', 7);
   }
 
   private drawAvatarCircle(root: Node, name: string, x: number, y: number, r: number, emoji: string, selected: boolean, t: ReturnType<LearningHall['theme']>, avatarUrl?: string) {
@@ -941,8 +941,8 @@ export class LearningHall extends Component {
       return;
     }
     if (this.mode === 'settings') {
-      AVATARS.forEach((av, i) => { if (this.hit(x, y, 60 + i * 44, 214, 36, 36)) { this.callbacks?.setAvatar(av.id); this.render('settings'); } });
-      if (this.hit(x, y, 60 + AVATARS.length * 44, 214, 36, 36)) { this.uploadAvatar(); }
+      AVATARS.forEach((av, i) => { if (this.hit(x, y, 44 + i * 44, 214, 36, 36)) { this.callbacks?.setAvatar(av.id); this.render('settings'); } });
+      if (this.hit(x, y, 44 + AVATARS.length * 44, 214, 36, 36)) { this.uploadAvatar(); }
       if (this.hit(x, y, 212, 50, 46, 24)) { this.callbacks?.toggleMusic(); this.render('settings'); }
       else if (this.hit(x, y, 212, 14, 46, 24)) { this.callbacks?.toggleSfx(); this.render('settings'); }
       else if (this.hit(x, y, 212, -104, 46, 24)) { this.callbacks?.toggleNight(); this.render('settings'); }
