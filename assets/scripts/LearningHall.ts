@@ -930,7 +930,7 @@ export class LearningHall extends Component {
 
   private drawToggle(root: Node, key: string, label: string, labelX: number, y: number, on: boolean, t: ReturnType<LearningHall['theme']>) {
     this.label(root, `HallSetToggleLabel-${key}`, label, labelX, y, 200, 26, 15, t.ink, 'left', 6);
-    const bw = 46, bh = 24; const bx = 212;
+    const bw = 46, bh = 24; const bx = 198;
     const node = this.graphics(root, `HallSetToggle-${key}`, bx, y, bw, bh, 6);
     node.fillColor = on ? new Color(200, 62, 44, 255) : new Color(160, 160, 170, 220);
     node.roundRect(-bw / 2, -bh / 2, bw, bh, bh / 2); node.fill();
@@ -985,9 +985,9 @@ export class LearningHall extends Component {
       AVATARS.forEach((av, i) => { if (this.hit(x, y, 18 + i * 44, 214, 36, 36)) { this.callbacks?.setAvatar(av.id); this.render('settings'); } });
       if (this.hit(x, y, 18 + AVATARS.length * 44, 214, 36, 36)) { this.uploadAvatar(); }
       else if (this.hit(x, y, 70, 162, 240, 38)) { this.nameDialogOpen = true; this.render('settings'); }
-      else if (this.hit(x, y, 212, 50, 46, 24)) { this.callbacks?.toggleMusic(); this.render('settings'); }
-      else if (this.hit(x, y, 212, 14, 46, 24)) { this.callbacks?.toggleSfx(); this.render('settings'); }
-      else if (this.hit(x, y, 212, -104, 46, 24)) { this.callbacks?.toggleNight(); this.render('settings'); }
+      else if (this.hit(x, y, 198, 50, 46, 24)) { this.callbacks?.toggleMusic(); this.render('settings'); }
+      else if (this.hit(x, y, 198, 14, 46, 24)) { this.callbacks?.toggleSfx(); this.render('settings'); }
+      else if (this.hit(x, y, 198, -104, 46, 24)) { this.callbacks?.toggleNight(); this.render('settings'); }
       else if (this.hit(x, y, 252, 288, 30, 30)) this.render('home');
       return;
     }
