@@ -410,26 +410,28 @@ export class LearningHall extends Component {
     const node = this.graphics(root, 'HallReviewSug', x, y, w, h, 3);
     node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 10); node.fill();
     node.strokeColor = t.cardStroke; node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 9); node.stroke();
-    // 顶部：badge "复习" + 标题（对齐 .card .badge / .ct）
-    const topY = y + h / 2 - 20;
+    // 顶部：badge "复习" + 标题 + 去复习按钮
+    const topY = y + h / 2 - 22;
     const badge = this.graphics(root, 'HallSugBadge', x - w / 2 + 40, topY, 44, 16, 6);
     badge.fillColor = new Color(168, 124, 64, 255); badge.roundRect(-22, -8, 44, 16, 3); badge.fill();
     this.label(root, 'HallSugBadgeTxt', '复习', x - w / 2 + 40, topY, 40, 14, 9, new Color(255, 233, 200), 'center', 7);
     this.label(root, 'HallSugTitle', '建议复习', x - w / 2 + 64, topY, 120, 20, 14, new Color(255, 240, 214), 'left', 6);
-    // chips（对齐 .chips：rgba(70,55,40,.6)）
+    this.button(root, 'HallSugGo', '去复习 ›', x + w / 2 - 54, topY, 80, 28, true);
+    // 中间：现代汉字 chips（去掉甲骨文字 glyph，避免字体缺失显示方框）
+    const chipY = y + 10;
     if (weak.length === 0) {
-      this.label(root, 'HallSugEmpty', '暂无需复习', x, y - 14, w - 40, 22, 12, new Color(216, 200, 168), 'center', 6);
+      this.label(root, 'HallSugEmpty', '暂无需复习', x, chipY, w - 40, 22, 12, new Color(216, 200, 168), 'center', 6);
     } else {
       weak.forEach((card, i) => {
         const cx = x - 104 + i * 104;
-        const chip = this.graphics(root, `HallSugChip-${i}`, cx, y - 14, 88, 34, 6);
+        const chip = this.graphics(root, `HallSugChip-${i}`, cx, chipY, 88, 34, 6);
         chip.fillColor = new Color(70, 55, 40, 153); chip.roundRect(-44, -17, 88, 34, 5); chip.fill();
         chip.strokeColor = new Color(255, 215, 150, 46); chip.lineWidth = 1; chip.roundRect(-43, -16, 86, 32, 4); chip.stroke();
-        this.oracleGlyph(root, `HallSugGlyph-${i}`, card, cx, y - 14, 30, 28, 6);
+        this.label(root, `HallSugChipTxt-${i}`, card.modern, cx, chipY, 80, 28, 16, new Color(255, 240, 214), 'center', 6);
       });
     }
-    this.label(root, 'HallSugNote', `易错 ${weak.length} 字`, x - w / 2 + 20, y - h / 2 + 18, 90, 18, 12, new Color(216, 200, 168), 'left', 6);
-    this.button(root, 'HallSugGo', '去复习 ›', x + w / 2 - 54, y - h / 2 + 18, 80, 28, true);
+    // 底部：易错字数
+    this.label(root, 'HallSugNote', `易错 ${weak.length} 字`, x - w / 2 + 20, y - h / 2 + 18, 120, 18, 12, new Color(216, 200, 168), 'left', 6);
   }
 
   private drawCodexEntry(root: Node, total: number, collected: number, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
@@ -437,24 +439,26 @@ export class LearningHall extends Component {
     const node = this.graphics(root, 'HallCodexEntry', x, y, w, h, 3);
     node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 10); node.fill();
     node.strokeColor = t.cardStroke; node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 9); node.stroke();
-    // 顶部：badge "图鉴" + 标题 + 计数（对齐 .card .badge / .ct）
-    const topY = y + h / 2 - 16;
+    // 顶部：badge "图鉴" + 标题 + 计数
+    const topY = y + h / 2 - 18;
     const badge = this.graphics(root, 'HallCodexBadge', x - w / 2 + 40, topY, 44, 16, 6);
     badge.fillColor = new Color(168, 124, 64, 255); badge.roundRect(-22, -8, 44, 16, 3); badge.fill();
     this.label(root, 'HallCodexBadgeTxt', '图鉴', x - w / 2 + 40, topY, 40, 14, 9, new Color(255, 233, 200), 'center', 7);
     this.label(root, 'HallCodexEntryTitle', '图鉴进度', x - w / 2 + 64, topY, 120, 20, 14, new Color(255, 240, 214), 'left', 6);
     this.label(root, 'HallCodexEntryCount', `${collected} / ${total}`, x + w / 2 - 18, topY, 90, 22, 16, new Color(255, 240, 214), 'right', 6);
-    // 进度条（对齐 .bar：底 rgba(70,55,40,.5) 填充 #d9a85a）
+    // 进度条
     const barW = 300, barH = 6; const pct = total > 0 ? collected / total : 0;
-    const barY = y + 2;
+    const barY = y + 4;
     const barBg = this.graphics(root, 'HallCodexBarBg', x, barY, barW, barH, 5);
     barBg.fillColor = new Color(70, 55, 40, 128); barBg.roundRect(-barW / 2, -barH / 2, barW, barH, 3); barBg.fill();
     if (pct > 0) {
       const barFill = this.graphics(root, 'HallCodexBarFill', x - barW / 2 + (barW * pct) / 2, barY, barW * pct, barH, 6);
       barFill.fillColor = new Color(217, 168, 90, 255); barFill.roundRect(-(barW * pct) / 2, -barH / 2, barW * pct, barH, 3); barFill.fill();
     }
-    this.label(root, 'HallCodexEntryPct', `${Math.round(pct * 100)}%`, x + w / 2 - 18, barY - 20, 50, 18, 12, new Color(216, 200, 168), 'right', 6);
-    this.label(root, 'HallCodexEntrySub', '已收集真实字形', x - w / 2 + 18, y - h / 2 + 18, 150, 18, 12, new Color(216, 200, 168), 'left', 6);
+    // 底部：左说明 + 右百分比，避免重叠
+    const bottomY = y - h / 2 + 20;
+    this.label(root, 'HallCodexEntrySub', '已收集真实字形', x - w / 2 + 18, bottomY, 150, 18, 12, new Color(216, 200, 168), 'left', 6);
+    this.label(root, 'HallCodexEntryPct', `${Math.round(pct * 100)}%`, x + w / 2 - 18, bottomY, 50, 18, 12, new Color(216, 200, 168), 'right', 6);
   }
 
   private drawBottomNav(root: Node, mode: HallMode, t: ReturnType<LearningHall['theme']>) {
@@ -850,8 +854,8 @@ export class LearningHall extends Component {
     if (this.mode === 'home') {
       if (this.hitCircle(x, y, -16, -6, 72)) { this.callbacks?.enterYinXu(); this.close(); }
       else if (this.hit(x, y, -442, -6, 158, 216)) this.render('ranks');
-      else if (this.hit(x, y, 538, 21, 86, 30)) this.openReviewLibrary();
-      else if (this.hit(x, y, 424, -87, 340, 112)) this.render('codex');
+      else if (this.hit(x, y, 540, 109, 86, 30)) this.openReviewLibrary();
+      else if (this.hit(x, y, 424, -77, 340, 112)) this.render('codex');
       else if (this.hit(x, y, 540, 320, 74, 30)) this.render('parent');
       else if (this.hit(x, y, -216, -281, 60, 60)) this.render('home');
       else if (this.hit(x, y, -130, -281, 60, 60)) this.openReviewLibrary();
