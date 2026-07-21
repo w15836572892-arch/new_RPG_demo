@@ -417,18 +417,17 @@ export class LearningHall extends Component {
     this.label(root, 'HallSugBadgeTxt', '复习', x - w / 2 + 40, topY, 40, 14, 9, new Color(255, 233, 200), 'center', 7);
     this.label(root, 'HallSugTitle', '建议复习', x - w / 2 + 64, topY, 120, 20, 14, new Color(255, 240, 214), 'left', 6);
     this.button(root, 'HallSugGo', '去复习 ›', x + w / 2 - 54, topY, 80, 28, true);
-    // 中间：现代汉字 chips（去掉甲骨文字 glyph，避免字体缺失显示方框）
-    const chipY = y + 10;
+    // 中间：代表性易错大字（现代汉字，整体下移避免与顶部标题重叠）
+    const glyphY = y - 6;
     if (weak.length === 0) {
-      this.label(root, 'HallSugEmpty', '暂无需复习', x, chipY, w - 40, 22, 12, new Color(216, 200, 168), 'center', 6);
+      this.label(root, 'HallSugEmpty', '暂无需复习', x, glyphY, w - 40, 30, 14, new Color(216, 200, 168), 'center', 6);
     } else {
-      weak.forEach((card, i) => {
-        const cx = x - 104 + i * 104;
-        const chip = this.graphics(root, `HallSugChip-${i}`, cx, chipY, 88, 34, 6);
-        chip.fillColor = new Color(70, 55, 40, 153); chip.roundRect(-44, -17, 88, 34, 5); chip.fill();
-        chip.strokeColor = new Color(255, 215, 150, 46); chip.lineWidth = 1; chip.roundRect(-43, -16, 86, 32, 4); chip.stroke();
-        this.label(root, `HallSugChipTxt-${i}`, card.modern, cx, chipY, 80, 28, 16, new Color(255, 240, 214), 'center', 6);
-      });
+      const show = weak[0];
+      const boxW = 120, boxH = 70;
+      const box = this.graphics(root, 'HallSugGlyphBox', x, glyphY, boxW, boxH, 5);
+      box.fillColor = new Color(70, 55, 40, 153); box.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 8); box.fill();
+      box.strokeColor = new Color(255, 215, 150, 46); box.lineWidth = 1; box.roundRect(-boxW / 2 + 1, -boxH / 2 + 1, boxW - 2, boxH - 2, 7); box.stroke();
+      this.label(root, 'HallSugGlyph', show.modern, x, glyphY, boxW - 10, boxH - 10, 48, new Color(255, 240, 214), 'center', 6);
     }
     // 底部：易错字数
     this.label(root, 'HallSugNote', `易错 ${weak.length} 字`, x - w / 2 + 80, y - h / 2 + 18, 120, 18, 12, new Color(216, 200, 168), 'left', 6);
