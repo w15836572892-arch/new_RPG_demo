@@ -246,8 +246,8 @@ export class LearningHall extends Component {
     this.drawTopBar(root, t);
     this.drawCharacterCard(root, -442, -6, t);
     this.drawEnterYinXu(root, -16, -6, t);
-    this.drawReviewSuggestion(root, 424, 65, t);
-    this.drawCodexEntry(root, total, collected, 424, -87, t);
+    this.drawReviewSuggestion(root, 424, 55, t);
+    this.drawCodexEntry(root, total, collected, 424, -105, t);
     this.drawBottomNav(root, 'home', t);
   }
 
@@ -964,7 +964,7 @@ export class LearningHall extends Component {
       if (this.hitCircle(x, y, -16, -6, 72)) { this.callbacks?.enterYinXu(); this.close(); }
       else if (this.hit(x, y, -442, -6, 180, 245)) this.render('ranks');
       else if (this.hit(x, y, 540, 109, 86, 30)) this.openReviewLibrary();
-      else if (this.hit(x, y, 424, -77, 340, 112)) this.render('codex');
+      else if (this.hit(x, y, 424, -105, 340, 112)) this.render('codex');
       else if (this.hit(x, y, 540, 320, 74, 30)) this.render('parent');
       else if (this.hit(x, y, -216, -281, 60, 60)) this.render('home');
       else if (this.hit(x, y, -130, -281, 60, 60)) this.openReviewLibrary();
