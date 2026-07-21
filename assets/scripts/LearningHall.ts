@@ -235,8 +235,8 @@ export class LearningHall extends Component {
     this.drawTopBar(root, t);
     this.drawCharacterCard(root, -442, -6, t);
     this.drawEnterYinXu(root, -16, -6, t);
-    this.drawReviewSuggestion(root, 424, 55, t);
-    this.drawCodexEntry(root, total, collected, 424, -77, t);
+    this.drawReviewSuggestion(root, 424, 65, t);
+    this.drawCodexEntry(root, total, collected, 424, -87, t);
     this.drawBottomNav(root, 'home', t);
   }
 
@@ -299,10 +299,11 @@ export class LearningHall extends Component {
     avInner.strokeColor = new Color(200, 184, 152, 255); avInner.lineWidth = 2; avInner.circle(0, 0, avR * 0.81 - 1); avInner.stroke();
     const av = AVATARS.find(a => a.id === profile.avatarId) ?? AVATARS[0];
     this.label(root, 'HallTopAvatarEmoji', av.emoji, avX, topY, avR * 1.4, avR * 1.4, avR * 0.95, new Color(255, 233, 200), 'center', 6);
-    this.label(root, 'HallPlayerName', profile.playerName || '少年卜官', -this.vw(0.376), this.vh(0.465), 220, 28, 18, t.ink, 'left', 6);
-    this.drawRankBadge(root, rankIdx, -this.vw(0.352), this.vh(0.414), t);
-    this.label(root, 'HallCollectedHint', `已识 ${collected} 字`, -this.vw(0.268), this.vh(0.414), 120, 22, 13, t.sub, 'left', 6);
-    // 右侧货币（纯文字，对齐 .rightbar .cur）+ 家长按钮
+    // 左上：头像右侧上方名字，下方金棕胶囊段位 + 已识字数（对齐参考图）
+    this.label(root, 'HallPlayerName', profile.playerName || '少年卜官', avX + avR + 18, topY + 14, 220, 28, 18, t.ink, 'left', 6);
+    this.drawRankBadge(root, rankIdx, avX + avR + 68, topY - 18, t);
+    this.label(root, 'HallCollectedHint', `已识 ${collected} 字`, avX + avR + 152, topY - 18, 110, 22, 13, t.sub, 'left', 6);
+    // 右侧货币（名+值一行，对齐 .rightbar .cur）+ 家长按钮
     this.drawCurrencies(root, progress, this.vw(0.150), topY, t);
     this.drawParentBtn(root, this.vw(0.422), topY, t);
   }
@@ -320,16 +321,16 @@ export class LearningHall extends Component {
   }
 
   private drawCurrencies(root: Node, progress: { ink: number; coins: number; experience: number }, startX: number, y: number, t: ReturnType<LearningHall['theme']>) {
-    // 对齐 .rightbar .cur：纯文字 名(ck #4a3018) + 值(cv #3a2410)，无胶囊
+    // 对齐 .rightbar .cur：名+值在同一行，无胶囊
     const items: Array<[string, number]> = [
       ['墨料', progress.ink],
       ['贝币', progress.coins],
       ['经验', progress.experience],
     ];
     items.forEach(([name, val], i) => {
-      const x = startX + i * 116;
-      this.label(root, `HallCurName-${i}`, name, x, y + 9, 44, 20, 13, t.sub, 'left', 6);
-      this.label(root, `HallCurVal-${i}`, `${val}`, x, y - 9, 60, 22, 16, t.ink, 'left', 6);
+      const x = startX + i * 110;
+      this.label(root, `HallCurName-${i}`, name, x - 22, y, 44, 22, 13, t.sub, 'right', 6);
+      this.label(root, `HallCurVal-${i}`, `${val}`, x + 20, y, 50, 22, 16, t.ink, 'left', 6);
     });
   }
 
@@ -378,7 +379,7 @@ export class LearningHall extends Component {
 
   private drawEnterYinXu(root: Node, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
     const r = this.vh(0.10);
-    this.label(root, 'HallEnterSupertitle', '殷商寻字', x, y + r + this.vh(0.028), 280, 30, 20, t.ink, 'center', 6);
+    this.label(root, 'HallEnterSupertitle', '殷商寻字', x, y + r + this.vh(0.055), 280, 30, 20, t.ink, 'center', 6);
     // 外黑环 + 橙红发光（对齐 box-shadow: 0 0 0 5px rgba(0,0,0,.25), 0 6px 30px rgba(220,80,40,.5)）
     const ring = this.graphics(root, 'HallEnterRing', x, y, (r + 5) * 2, (r + 5) * 2, 3);
     ring.fillColor = new Color(0, 0, 0, 64); ring.circle(0, 0, r + 5); ring.fill();
@@ -392,32 +393,32 @@ export class LearningHall extends Component {
     node.strokeColor = new Color(255, 242, 216, 255); node.lineWidth = 3; node.circle(0, 0, r - 3); node.stroke();
     this.label(root, 'HallEnterEmoji', '🏛', x, y + this.vh(0.016), 64, 50, 30, new Color(255, 242, 216), 'center', 6);
     this.label(root, 'HallEnterTitle', '进入殷墟', x, y - this.vh(0.028), 150, 24, 14, new Color(255, 240, 220), 'center', 6);
-    this.label(root, 'HallEnterSub', '探索草野河畔，发掘甲骨遗存', x, y - r - this.vh(0.018), 420, 22, 12, t.sub, 'center', 6);
+    this.label(root, 'HallEnterSub', '探索草野河畔，发掘甲骨遗存', x, y - r - this.vh(0.040), 420, 22, 12, t.sub, 'center', 6);
   }
 
   private drawReviewSuggestion(root: Node, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
     const weakIds = this.callbacks?.getWeakCards() ?? [];
     const weak = weakIds.map(id => this.cards().find(c => c.id === id)).filter((c): c is HallCard => !!c).slice(0, 3);
-    const w = 340, h = 132;
+    const w = 340, h = 152;
     const node = this.graphics(root, 'HallReviewSug', x, y, w, h, 3);
     node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 10); node.fill();
     node.strokeColor = t.cardStroke; node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 9); node.stroke();
     // 顶部：badge "复习" + 标题（对齐 .card .badge / .ct）
-    const topY = y + h / 2 - 16;
+    const topY = y + h / 2 - 20;
     const badge = this.graphics(root, 'HallSugBadge', x - w / 2 + 40, topY, 44, 16, 6);
     badge.fillColor = new Color(168, 124, 64, 255); badge.roundRect(-22, -8, 44, 16, 3); badge.fill();
     this.label(root, 'HallSugBadgeTxt', '复习', x - w / 2 + 40, topY, 40, 14, 9, new Color(255, 233, 200), 'center', 7);
     this.label(root, 'HallSugTitle', '建议复习', x - w / 2 + 64, topY, 120, 20, 14, new Color(255, 240, 214), 'left', 6);
     // chips（对齐 .chips：rgba(70,55,40,.6)）
     if (weak.length === 0) {
-      this.label(root, 'HallSugEmpty', '暂无需复习', x, y - 8, w - 40, 22, 12, new Color(216, 200, 168), 'center', 6);
+      this.label(root, 'HallSugEmpty', '暂无需复习', x, y - 14, w - 40, 22, 12, new Color(216, 200, 168), 'center', 6);
     } else {
       weak.forEach((card, i) => {
         const cx = x - 104 + i * 104;
-        const chip = this.graphics(root, `HallSugChip-${i}`, cx, y - 8, 88, 34, 6);
+        const chip = this.graphics(root, `HallSugChip-${i}`, cx, y - 14, 88, 34, 6);
         chip.fillColor = new Color(70, 55, 40, 153); chip.roundRect(-44, -17, 88, 34, 5); chip.fill();
         chip.strokeColor = new Color(255, 215, 150, 46); chip.lineWidth = 1; chip.roundRect(-43, -16, 86, 32, 4); chip.stroke();
-        this.oracleGlyph(root, `HallSugGlyph-${i}`, card, cx, y - 8, 30, 28, 6);
+        this.oracleGlyph(root, `HallSugGlyph-${i}`, card, cx, y - 14, 30, 28, 6);
       });
     }
     this.label(root, 'HallSugNote', `易错 ${weak.length} 字`, x - w / 2 + 20, y - h / 2 + 18, 90, 18, 12, new Color(216, 200, 168), 'left', 6);
@@ -458,7 +459,7 @@ export class LearningHall extends Component {
       ['progress', '📈', '进度', mode === 'progress'],
       ['settings', '⚙', '设置', mode === 'settings'],
     ];
-    const y = -this.vh(0.456); const gap = this.vh(0.118); const startX = -this.vh(0.295);
+    const y = -this.vh(0.456); const gap = this.vh(0.108); const startX = -this.vh(0.270);
     items.forEach(([m, icon, label, active], i) => {
       const x = startX + i * gap;
       const r = this.vh(0.044);
@@ -470,11 +471,12 @@ export class LearningHall extends Component {
       pad.strokeColor = active ? new Color(160, 106, 46, 255) : new Color(110, 76, 40, 255);
       pad.lineWidth = 2; pad.circle(0, 0, r - 2); pad.stroke();
       this.label(root, `HallNavIcon-${i}`, icon, x, padY, r * 2 - 4, r * 2 - 4, 22, new Color(80, 60, 40), 'center', 6);
+      // active 小圆点放在圆圈内部偏下
       if (active) {
-        const dot = this.graphics(root, `HallNavDot-${i}`, x, y + this.vh(0.038), 18, 4, 6);
-        dot.fillColor = new Color(255, 217, 138, 255); dot.roundRect(-9, -2, 18, 4, 2); dot.fill();
+        const dot = this.graphics(root, `HallNavDot-${i}`, x, padY - r + 8, 12, 4, 6);
+        dot.fillColor = new Color(255, 217, 138, 255); dot.roundRect(-6, -2, 12, 4, 2); dot.fill();
       }
-      this.label(root, `HallNavLabel-${i}`, label, x, y - this.vh(0.030), 64, 18, 13, active ? new Color(122, 74, 20) : new Color(58, 36, 16), 'center', 6);
+      this.label(root, `HallNavLabel-${i}`, label, x, padY - r - 12, 64, 18, 13, active ? new Color(122, 74, 20) : new Color(58, 36, 16), 'center', 6);
     });
   }
 
@@ -838,15 +840,15 @@ export class LearningHall extends Component {
     if (this.mode === 'home') {
       if (this.hitCircle(x, y, -16, -6, 72)) { this.callbacks?.enterYinXu(); this.close(); }
       else if (this.hit(x, y, -442, -6, 158, 216)) this.render('ranks');
-      else if (this.hit(x, y, 538, 11, 86, 30)) this.openReviewLibrary();
-      else if (this.hit(x, y, 424, -77, 340, 112)) this.render('codex');
+      else if (this.hit(x, y, 538, 21, 86, 30)) this.openReviewLibrary();
+      else if (this.hit(x, y, 424, -87, 340, 112)) this.render('codex');
       else if (this.hit(x, y, 540, 320, 74, 30)) this.render('parent');
-      else if (this.hit(x, y, -212, -324, 66, 66)) this.render('home');
-      else if (this.hit(x, y, -127, -324, 66, 66)) this.openReviewLibrary();
-      else if (this.hit(x, y, -42, -324, 66, 66)) this.render('codex');
-      else if (this.hit(x, y, 42, -324, 66, 66)) this.render('parent');
-      else if (this.hit(x, y, 127, -324, 66, 66)) this.render('progress');
-      else if (this.hit(x, y, 212, -324, 66, 66)) this.render('settings');
+      else if (this.hit(x, y, -194, -324, 66, 66)) this.render('home');
+      else if (this.hit(x, y, -116, -324, 66, 66)) this.openReviewLibrary();
+      else if (this.hit(x, y, -38, -324, 66, 66)) this.render('codex');
+      else if (this.hit(x, y, 40, -324, 66, 66)) this.render('parent');
+      else if (this.hit(x, y, 118, -324, 66, 66)) this.render('progress');
+      else if (this.hit(x, y, 196, -324, 66, 66)) this.render('settings');
       return;
     }
     if (this.mode === 'ranks') {
