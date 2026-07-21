@@ -466,10 +466,10 @@ export class LearningHall extends Component {
       ['progress', '📈', '进度', mode === 'progress'],
       ['settings', '⚙', '设置', mode === 'settings'],
     ];
-    const y = -this.vh(0.390); const gap = this.vh(0.108); const startX = -this.vh(0.270);
+    const y = -this.vh(0.390); const gap = this.vh(0.112); const startX = -this.vh(0.280);
     items.forEach(([m, icon, label, active], i) => {
       const x = startX + i * gap;
-      const r = this.vh(0.044);
+      const r = this.vh(0.040);
       const padY = y + this.vh(0.006);
       // 浅米 radial 圆垫（对齐 .icon-pad）
       const pad = this.graphics(root, `HallNavPad-${i}`, x, padY, r * 2, r * 2, 5);
@@ -477,16 +477,16 @@ export class LearningHall extends Component {
       pad.circle(0, 0, r); pad.fill();
       pad.strokeColor = active ? new Color(160, 106, 46, 255) : new Color(110, 76, 40, 255);
       pad.lineWidth = 2; pad.circle(0, 0, r - 2); pad.stroke();
-      this.label(root, `HallNavIcon-${i}`, icon, x, padY, r * 2 - 4, r * 2 - 4, 22, new Color(80, 60, 40), 'center', 6);
+      this.label(root, `HallNavIcon-${i}`, icon, x, padY, r * 2 - 4, r * 2 - 4, 20, new Color(80, 60, 40), 'center', 6);
       // active 小圆点放在圆圈内部偏下
       if (active) {
-        const dot = this.graphics(root, `HallNavDot-${i}`, x, padY - r + 8, 12, 4, 6);
-        dot.fillColor = new Color(255, 217, 138, 255); dot.roundRect(-6, -2, 12, 4, 2); dot.fill();
+        const dot = this.graphics(root, `HallNavDot-${i}`, x, padY - r + 7, 10, 3, 6);
+        dot.fillColor = new Color(255, 217, 138, 255); dot.roundRect(-5, -1.5, 10, 3, 1.5); dot.fill();
       }
       const navLabelColor = active
         ? (t.night ? new Color(255, 233, 180) : new Color(122, 74, 20))
         : (t.night ? new Color(230, 215, 180) : new Color(58, 36, 16));
-      this.label(root, `HallNavLabel-${i}`, label, x, padY - r - 12, 64, 18, 13, navLabelColor, 'center', 6);
+      this.label(root, `HallNavLabel-${i}`, label, x, padY - r - 11, 64, 18, 12, navLabelColor, 'center', 6);
     });
   }
 
@@ -853,12 +853,12 @@ export class LearningHall extends Component {
       else if (this.hit(x, y, 538, 21, 86, 30)) this.openReviewLibrary();
       else if (this.hit(x, y, 424, -87, 340, 112)) this.render('codex');
       else if (this.hit(x, y, 540, 320, 74, 30)) this.render('parent');
-      else if (this.hit(x, y, -194, -281, 66, 66)) this.render('home');
-      else if (this.hit(x, y, -117, -281, 66, 66)) this.openReviewLibrary();
-      else if (this.hit(x, y, -39, -281, 66, 66)) this.render('codex');
-      else if (this.hit(x, y, 39, -281, 66, 66)) this.render('parent');
-      else if (this.hit(x, y, 117, -281, 66, 66)) this.render('progress');
-      else if (this.hit(x, y, 195, -281, 66, 66)) this.render('settings');
+      else if (this.hit(x, y, -202, -281, 60, 60)) this.render('home');
+      else if (this.hit(x, y, -121, -281, 60, 60)) this.openReviewLibrary();
+      else if (this.hit(x, y, -40, -281, 60, 60)) this.render('codex');
+      else if (this.hit(x, y, 40, -281, 60, 60)) this.render('parent');
+      else if (this.hit(x, y, 121, -281, 60, 60)) this.render('progress');
+      else if (this.hit(x, y, 202, -281, 60, 60)) this.render('settings');
       return;
     }
     if (this.mode === 'ranks') {
