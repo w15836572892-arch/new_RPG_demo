@@ -2363,7 +2363,7 @@
     "_priority": 0,
     "_fov": 45,
     "_fovAxis": 0,
-    "_orthoHeight": 429.7406340057637,
+    "_orthoHeight": 433.9427012278308,
     "_near": 0,
     "_far": 2000,
     "_color": {
@@ -67465,7 +67465,7 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 110.3837455971822,
+      "width": 110.425022737608,
       "height": 27.72
     },
     "_anchorPoint": {
@@ -67498,7 +67498,7 @@
     "_string": "南城门 · 通往野外",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 17.07890625,
+    "_actualFontSize": 15.0322265625,
     "_fontSize": 14,
     "_fontFamily": "Arial",
     "_lineHeight": 22,
@@ -67597,7 +67597,7 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 71.97181195965418,
+      "width": 71.97334015461574,
       "height": 32.760000000000005
     },
     "_anchorPoint": {
@@ -67630,7 +67630,7 @@
     "_string": "小片农田",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 21.958593750000002,
+    "_actualFontSize": 19.3271484375,
     "_fontSize": 18,
     "_fontFamily": "Arial",
     "_lineHeight": 26,
@@ -75759,7 +75759,7 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 71.97181195965418,
+      "width": 71.97334015461574,
       "height": 32.760000000000005
     },
     "_anchorPoint": {
@@ -75792,7 +75792,7 @@
     "_string": "先民民居",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 21.958593750000002,
+    "_actualFontSize": 19.3271484375,
     "_fontSize": 18,
     "_fontFamily": "Arial",
     "_lineHeight": 26,
@@ -77211,7 +77211,7 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 71.97181195965418,
+      "width": 71.97334015461574,
       "height": 32.760000000000005
     },
     "_anchorPoint": {
@@ -77244,7 +77244,7 @@
     "_string": "商代集市",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 21.958593750000002,
+    "_actualFontSize": 19.3271484375,
     "_fontSize": 18,
     "_fontFamily": "Arial",
     "_lineHeight": 26,
@@ -77783,7 +77783,7 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 76.5093034542107,
+      "width": 76.50609652114598,
       "height": 26.46
     },
     "_anchorPoint": {
@@ -77816,7 +77816,7 @@
     "_string": "柜台 · 兑换处",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 15.858984375,
+    "_actualFontSize": 13.95849609375,
     "_fontSize": 13,
     "_fontFamily": "Arial",
     "_lineHeight": 21,
@@ -81655,7 +81655,7 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 87.97280259365994,
+      "width": 87.99226921327876,
       "height": 37.8
     },
     "_anchorPoint": {
@@ -81688,7 +81688,7 @@
     "_string": "占卜宗庙",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 26.83828125,
+    "_actualFontSize": 23.6220703125,
     "_fontSize": 22,
     "_fontFamily": "Arial",
     "_lineHeight": 30,
@@ -81787,7 +81787,7 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 194.8894167267051,
+      "width": 194.88126705320602,
       "height": 26.46
     },
     "_anchorPoint": {
@@ -81820,7 +81820,7 @@
     "_string": "草编坐垫：需甲骨与墨料开启占卜",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 15.858984375,
+    "_actualFontSize": 13.95849609375,
     "_fontSize": 13,
     "_fontFamily": "Arial",
     "_lineHeight": 21,
@@ -81919,8 +81919,8 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 320.91716198366953,
-      "height": 44.1
+      "width": 320.98601637107777,
+      "height": 44.099999999999994
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -81952,7 +81952,7 @@
     "_string": "《殷墟小卜官》 · 城内探索",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 32.937890625,
+    "_actualFontSize": 28.99072265625,
     "_fontSize": 27,
     "_fontFamily": "Arial",
     "_lineHeight": 35,
@@ -82051,8 +82051,8 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 300.14058997758565,
-      "height": 28.979999999999997
+      "width": 300.17428376534787,
+      "height": 28.98
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -82084,7 +82084,7 @@
     "_string": "WASD / 方向键 / 左侧摇杆移动  ·  B 打开背包",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 18.298828125,
+    "_actualFontSize": 16.10595703125,
     "_fontSize": 15,
     "_fontFamily": "Arial",
     "_lineHeight": 23,
@@ -82183,7 +82183,7 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 305.8719330371438,
+      "width": 305.9427012278308,
       "height": 31.5
     },
     "_anchorPoint": {
@@ -82216,7 +82216,7 @@
     "_string": "探索殷墟城：夯土围墙划分城内与野外。",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 20.738671875,
+    "_actualFontSize": 18.25341796875,
     "_fontSize": 17,
     "_fontFamily": "Arial",
     "_lineHeight": 25,
@@ -82425,8 +82425,8 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 23.985125480307396,
-      "height": 25.2
+      "width": 23.991103910868578,
+      "height": 25.200000000000003
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -82458,7 +82458,7 @@
     "_string": "移动",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 14.639062500000001,
+    "_actualFontSize": 12.884765625,
     "_fontSize": 12,
     "_fontFamily": "Arial",
     "_lineHeight": 20,
@@ -82667,8 +82667,8 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 44.15103166026257,
-      "height": 28.979999999999997
+      "width": 44.15599420190996,
+      "height": 28.98
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -82700,7 +82700,7 @@
     "_string": "背包 B",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 18.298828125,
+    "_actualFontSize": 16.10595703125,
     "_fontSize": 15,
     "_fontFamily": "Arial",
     "_lineHeight": 23,
