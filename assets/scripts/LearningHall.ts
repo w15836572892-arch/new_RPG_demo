@@ -442,9 +442,16 @@ export class LearningHall extends Component {
       const show = weak[0];
       const boxW = 120, boxH = 70;
       const box = this.graphics(root, 'HallSugGlyphBox', x, glyphY, boxW, boxH, 5);
-      box.fillColor = new Color(70, 55, 40, 153); box.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 8); box.fill();
-      box.strokeColor = new Color(255, 215, 150, 46); box.lineWidth = 1; box.roundRect(-boxW / 2 + 1, -boxH / 2 + 1, boxW - 2, boxH - 2, 7); box.stroke();
-      this.label(root, 'HallSugGlyph', show.modern, x, glyphY, boxW - 10, boxH - 10, 48, new Color(255, 240, 214), 'center', 6);
+      box.fillColor = new Color(70, 55, 40, 200); box.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 8); box.fill();
+      box.strokeColor = new Color(255, 215, 150, 120); box.lineWidth = 2; box.roundRect(-boxW / 2 + 1, -boxH / 2 + 1, boxW - 2, boxH - 2, 7); box.stroke();
+      // 手动创建大字 Label，避免 label() 默认 SHRINK/Wrap 导致大字缩没
+      const glyphNode = new Node('HallSugGlyph'); glyphNode.parent = root; glyphNode.setPosition(x, glyphY, 6);
+      glyphNode.addComponent(UITransform).setContentSize(boxW - 10, boxH - 10);
+      const glyphLabel = glyphNode.addComponent(Label);
+      glyphLabel.string = show.modern;
+      glyphLabel.fontSize = 48; glyphLabel.lineHeight = 52; glyphLabel.color = new Color(255, 240, 214);
+      glyphLabel.horizontalAlign = Label.HorizontalAlign.CENTER; glyphLabel.verticalAlign = Label.VerticalAlign.CENTER;
+      glyphLabel.overflow = Label.Overflow.CLAMP; glyphLabel.enableWrapText = false;
     }
     // 底部：易错字数
     this.label(root, 'HallSugNote', `易错 ${weak.length} 字`, x - w / 2 + 80, y - h / 2 + 18, 120, 18, 12, new Color(216, 200, 168), 'left', 6);
@@ -482,7 +489,7 @@ export class LearningHall extends Component {
       ['home', '🏠', '大厅', mode === 'home'],
       ['review', '📖', '复习', mode === 'review' || mode === 'reviewResult'],
       ['codex', '🏺', '图鉴', mode === 'codex'],
-      ['parent', '⭐', '任务', mode === 'parent'],
+      ['parent', '⭐', '错题本', mode === 'parent'],
       ['progress', '📈', '进度', mode === 'progress'],
       ['settings', '⚙', '设置', mode === 'settings'],
     ];
