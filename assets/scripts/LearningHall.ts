@@ -287,22 +287,23 @@ export class LearningHall extends Component {
     const rankIdx = this.currentRank();
     const collected = this.cards().filter(c => c.unlocked).length;
     const topY = this.vh(0.445);
-    // 头像：conic 金渐变圆 + 内圈 emoji 圆 + 外发光（对齐 .avatar / .avatar i）
-    const avR = this.vh(0.058);
-    const avX = -this.vw(0.426);
-    const glow = this.graphics(root, 'HallTopAvatarGlow', avX, topY, (avR + 8) * 2, (avR + 8) * 2, 4);
-    glow.fillColor = new Color(255, 210, 140, 77); glow.circle(0, 0, avR + 6); glow.fill();
+    // 头像改小（直径≈55px），避免压住右侧名字
+    const avR = this.vh(0.038);
+    const avX = -this.vw(0.430);
+    const glow = this.graphics(root, 'HallTopAvatarGlow', avX, topY, (avR + 6) * 2, (avR + 6) * 2, 4);
+    glow.fillColor = new Color(255, 210, 140, 77); glow.circle(0, 0, avR + 5); glow.fill();
     const avBg = this.graphics(root, 'HallTopAvatarBg', avX, topY, avR * 2, avR * 2, 5);
     avBg.fillColor = new Color(212, 167, 106, 255); avBg.circle(0, 0, avR); avBg.fill();
-    const avInner = this.graphics(root, 'HallTopAvatarInner', avX, topY, avR * 1.62, avR * 1.62, 5);
-    avInner.fillColor = new Color(110, 94, 78, 255); avInner.circle(0, 0, avR * 0.81); avInner.fill();
-    avInner.strokeColor = new Color(200, 184, 152, 255); avInner.lineWidth = 2; avInner.circle(0, 0, avR * 0.81 - 1); avInner.stroke();
+    const avInner = this.graphics(root, 'HallTopAvatarInner', avX, topY, avR * 1.58, avR * 1.58, 5);
+    avInner.fillColor = new Color(110, 94, 78, 255); avInner.circle(0, 0, avR * 0.79); avInner.fill();
+    avInner.strokeColor = new Color(200, 184, 152, 255); avInner.lineWidth = 2; avInner.circle(0, 0, avR * 0.79 - 1); avInner.stroke();
     const av = AVATARS.find(a => a.id === profile.avatarId) ?? AVATARS[0];
-    this.label(root, 'HallTopAvatarEmoji', av.emoji, avX, topY, avR * 1.4, avR * 1.4, avR * 0.95, new Color(255, 233, 200), 'center', 6);
-    // 左上：头像右侧上方名字，下方金棕胶囊段位 + 已识字数（对齐参考图）
-    this.label(root, 'HallPlayerName', profile.playerName || '少年卜官', avX + avR + 18, topY + 14, 220, 28, 18, t.ink, 'left', 6);
-    this.drawRankBadge(root, rankIdx, avX + avR + 68, topY - 18, t);
-    this.label(root, 'HallCollectedHint', `已识 ${collected} 字`, avX + avR + 152, topY - 18, 110, 22, 13, t.sub, 'left', 6);
+    this.label(root, 'HallTopAvatarEmoji', av.emoji, avX, topY, avR * 1.35, avR * 1.35, avR * 0.95, new Color(255, 233, 200), 'center', 6);
+    // 左上：头像右侧上方名字，下方金棕胶囊段位 + 已识字数（严格不重叠）
+    const textLeft = avX + avR + 16;
+    this.label(root, 'HallPlayerName', profile.playerName || '少年卜官', textLeft, topY + 12, 220, 26, 18, t.ink, 'left', 6);
+    this.drawRankBadge(root, rankIdx, textLeft + 64, topY - 16, t);
+    this.label(root, 'HallCollectedHint', `已识 ${collected} 字`, textLeft + 148, topY - 16, 110, 22, 13, t.sub, 'left', 6);
     // 右侧货币（名+值一行，对齐 .rightbar .cur）+ 家长按钮
     this.drawCurrencies(root, progress, this.vw(0.150), topY, t);
     this.drawParentBtn(root, this.vw(0.422), topY, t);
@@ -459,7 +460,7 @@ export class LearningHall extends Component {
       ['progress', '📈', '进度', mode === 'progress'],
       ['settings', '⚙', '设置', mode === 'settings'],
     ];
-    const y = -this.vh(0.456); const gap = this.vh(0.108); const startX = -this.vh(0.270);
+    const y = -this.vh(0.390); const gap = this.vh(0.108); const startX = -this.vh(0.270);
     items.forEach(([m, icon, label, active], i) => {
       const x = startX + i * gap;
       const r = this.vh(0.044);
@@ -843,12 +844,12 @@ export class LearningHall extends Component {
       else if (this.hit(x, y, 538, 21, 86, 30)) this.openReviewLibrary();
       else if (this.hit(x, y, 424, -87, 340, 112)) this.render('codex');
       else if (this.hit(x, y, 540, 320, 74, 30)) this.render('parent');
-      else if (this.hit(x, y, -194, -324, 66, 66)) this.render('home');
-      else if (this.hit(x, y, -116, -324, 66, 66)) this.openReviewLibrary();
-      else if (this.hit(x, y, -38, -324, 66, 66)) this.render('codex');
-      else if (this.hit(x, y, 40, -324, 66, 66)) this.render('parent');
-      else if (this.hit(x, y, 118, -324, 66, 66)) this.render('progress');
-      else if (this.hit(x, y, 196, -324, 66, 66)) this.render('settings');
+      else if (this.hit(x, y, -194, -281, 66, 66)) this.render('home');
+      else if (this.hit(x, y, -117, -281, 66, 66)) this.openReviewLibrary();
+      else if (this.hit(x, y, -39, -281, 66, 66)) this.render('codex');
+      else if (this.hit(x, y, 39, -281, 66, 66)) this.render('parent');
+      else if (this.hit(x, y, 117, -281, 66, 66)) this.render('progress');
+      else if (this.hit(x, y, 195, -281, 66, 66)) this.render('settings');
       return;
     }
     if (this.mode === 'ranks') {
