@@ -114,6 +114,7 @@ type CitySave = {
   unlockedOracleIds: string[]; mastery: Record<string, LearningRecord>;
   ownedProductIds: string[]; equippedShellId: string; placedDecorationIds: string[];
   playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
+  wechats: { nickname: string; avatarUrl?: string }[];
 };
 
 /**
@@ -608,6 +609,7 @@ export class YinXuCity extends Component {
         musicOn: this.save.musicOn,
         sfxOn: this.save.sfxOn,
         nightMode: this.save.nightMode,
+        wechats: this.save.wechats,
       }),
       setName: (name) => {
         const trimmed = name.trim();
@@ -635,9 +637,27 @@ export class YinXuCity extends Component {
         this.save.nightMode = !this.save.nightMode;
         this.persistCitySave();
       },
+      // 微信绑定（阶段1：本地占位；真实微信授权待后端/平台就绪后替换）
+      // index: 要操作的账号槽位（0 或 1），bound=true 时写入该槽位，bound=false 时删除该槽位
+      bindWechat: (bound: boolean, index: number, info?: { nickname?: string; avatarUrl?: string }) => {
+        const list = this.save.wechats || [];
+        if (bound) {
+          const item = { nickname: info?.nickname?.trim() || '微信用户', avatarUrl: info?.avatarUrl };
+          if (index >= 0 && index <= list.length) {
+            list[index] = item;
+          } else {
+            list.push(item);
+          }
+          this.save.wechats = list.slice(0, 2);
+        } else if (typeof index === 'number' && index >= 0 && index < list.length) {
+          list.splice(index, 1);
+          this.save.wechats = list;
+        }
+        this.persistCitySave();
+      },
       getWeakCards: () => {
         return Object.entries(this.save.mastery)
-          .filter(([, record]) => record.attempts >= 1 && record.correctCount < record.attempts)
+          .filter(([, record]) => record.attempts >= 1 && record.correctCount / record.attempts < 0.6)
           .map(([id, record]) => ({ id, rate: record.correctCount / record.attempts }))
           .sort((a, b) => a.rate - b.rate)
           .slice(0, 3)
@@ -4417,6 +4437,7 @@ export class YinXuCity extends Component {
       musicOn: true,
       sfxOn: true,
       nightMode: false,
+      wechats: [],
     };
     try {
       const raw = sys.localStorage.getItem(this.saveKey);
@@ -4439,6 +4460,20 @@ export class YinXuCity extends Component {
         musicOn: typeof parsed.musicOn === 'boolean' ? parsed.musicOn : defaults.musicOn,
         sfxOn: typeof parsed.sfxOn === 'boolean' ? parsed.sfxOn : defaults.sfxOn,
         nightMode: typeof parsed.nightMode === 'boolean' ? parsed.nightMode : defaults.nightMode,
+        // 微信绑定：从单对象旧字段迁移到数组；最多保留 2 个
+        wechats: Array.isArray(parsed.wechats)
+          ? parsed.wechats.filter((w: any) => w && typeof w.nickname === 'string').slice(0, 2).map((w: any) => ({
+              nickname: w.nickname.trim() || '微信用户',
+              avatarUrl: typeof w.avatarUrl === 'string' && w.avatarUrl.length > 0 ? w.avatarUrl : undefined,
+            }))
+          : (((parsed as any).wechat && typeof (parsed as any).wechat === 'object' && (parsed as any).wechat.bound)
+              ? [{
+                  nickname: typeof (parsed as any).wechat.nickname === 'string' && (parsed as any).wechat.nickname.trim().length > 0
+                    ? (parsed as any).wechat.nickname.trim() : '微信用户',
+                  avatarUrl: typeof (parsed as any).wechat.avatarUrl === 'string' && (parsed as any).wechat.avatarUrl.length > 0
+                    ? (parsed as any).wechat.avatarUrl : undefined,
+                }]
+              : defaults.wechats),
       };
     } catch (error) {
       console.warn('[YinXuCity] save data could not be read, using a safe new profile.', error);
@@ -5792,7 +5827,7 @@ export class YinXuCity extends Component {
             : this.actionKind === 'shop' ? '点击“进入”打开商代集市' : '';
       this.status.string = this.statusNoticeTimer > 0
         ? this.statusNotice
-        : interactionHint || (this.blocked ? '前方不可通行 · 寻找城门或绕开障碍' : `摇杆 / WASD 移动  ·  坐标 ${Math.round(x)}, ${Math.round(y)}`);
+        : interactionHint || (this.blocked ? '前方不可通行 · 寻找城门或绕开障碍' : `摇杆 · 坐标 ${Math.round(x)}, ${Math.round(y)}`);
     }
   }
 

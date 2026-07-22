@@ -49,18 +49,19 @@ export type HallCard = {
   unlocked: boolean;
 };
 
-type HallMode = 'home' | 'codex' | 'review' | 'reviewResult' | 'progress' | 'parent' | 'settings' | 'ranks';
+type HallMode = 'home' | 'codex' | 'review' | 'reviewResult' | 'progress' | 'parent' | 'parentCenter' | 'bindWechatDialog' | 'unbindWechatDialog' | 'settings' | 'ranks';
 type HallCallbacks = {
   getCards: () => HallCard[];
   getProgress: () => { ink: number; coins: number; experience: number; attempts: number; correct: number };
   recordReview: (cardId: string, correct: boolean) => void;
   enterYinXu: () => void;
-  getProfile: () => { playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean };
+  getProfile: () => { playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean; wechats: { nickname: string; avatarUrl?: string }[] };
   setName: (name: string) => void;
   setAvatar: (avatarId: string, avatarUrl?: string) => void;
   toggleMusic: () => void;
   toggleSfx: () => void;
   toggleNight: () => void;
+  bindWechat: (bound: boolean, index: number, info?: { nickname?: string; avatarUrl?: string }) => void;
   getWeakCards: () => string[];
 };
 
@@ -82,6 +83,7 @@ export class LearningHall extends Component {
   private reviewMistakes: HallCard[] = [];
   private reviewLibraryOpen = false;
   private nameDialogOpen = false;
+  private pendingUnbindIndex = -1;
   private hiddenGameNodes: Node[] = [];
   private viewportScale = 1;
 
@@ -109,7 +111,7 @@ export class LearningHall extends Component {
   }
 
   private progress() {
-    return this.callbacks?.getProgress() ?? { ink: 0, attempts: 0, correct: 0 };
+    return this.callbacks?.getProgress() ?? { ink: 0, coins: 0, experience: 0, attempts: 0, correct: 0 };
   }
 
   private createRoot(name: string, mode: HallMode) {
@@ -216,18 +218,6 @@ export class LearningHall extends Component {
     if (back) this.button(root, 'HallBack', '返回大厅', 480, 286, 150, 48, false);
   }
 
-  private drawModule(root: Node, name: string, title: string, detail: string, x: number, y: number, color: Color, glyph: string) {
-    const card = this.graphics(root, name, x, y, 330, 178, 2);
-    card.fillColor = color; card.roundRect(-165, -89, 330, 178, 20); card.fill();
-    card.strokeColor = new Color(255, 240, 207, 145); card.lineWidth = 2; card.roundRect(-162, -86, 324, 172, 18); card.stroke();
-    card.fillColor = new Color(255, 248, 222, 40); card.circle(113, 24, 64); card.fill();
-    this.label(root, `${name}Glyph`, glyph, x + 112, y + 14, 94, 94, 46, new Color(255, 244, 211), 'center', 5);
-    // Labels are center-anchored in Cocos, so their centre sits at -70 rather
-    // than their left edge. This leaves a fixed gap before the glyph zone.
-    this.label(root, `${name}Title`, title, x - 70, y + 36, 155, 42, 24, new Color(255, 247, 222), 'left', 5);
-    this.label(root, `${name}Detail`, detail, x - 70, y - 27, 158, 70, 14, new Color(246, 238, 223), 'left', 5);
-  }
-
   private render(mode: HallMode, selectedId: string | null = this.selectedCardId) {
     if (!this.callbacks) return;
     if (mode === 'home') this.renderHome();
@@ -236,6 +226,9 @@ export class LearningHall extends Component {
     else if (mode === 'reviewResult') this.renderReviewResult();
     else if (mode === 'progress') this.renderProgress();
     else if (mode === 'ranks') this.renderRanks();
+    else if (mode === 'parentCenter') this.drawParentCenter();
+    else if (mode === 'bindWechatDialog') this.drawBindWechatDialog();
+    else if (mode === 'unbindWechatDialog') this.drawUnbindWechatDialog();
     else this.renderPlaceholder(mode);
   }
 
@@ -247,7 +240,7 @@ export class LearningHall extends Component {
     this.drawCharacterCard(root, -442, -6, t);
     this.drawEnterYinXu(root, -16, -6, t);
     this.drawReviewSuggestion(root, 424, 55, t);
-    this.drawCodexEntry(root, total, collected, 424, -125, t);
+    this.drawCodexEntry(root, total, collected, 424, -140, t);
     this.drawBottomNav(root, 'home', t);
   }
 
@@ -300,7 +293,7 @@ export class LearningHall extends Component {
     const topY = this.vh(0.445);
     // 头像（直径≈58px），留足右侧空间
     const avR = this.vh(0.040);
-    const avX = -this.vw(0.424);
+    const avX = -this.vw(0.432);
     const glow = this.graphics(root, 'HallTopAvatarGlow', avX, topY, (avR + 6) * 2, (avR + 6) * 2, 4);
     glow.fillColor = new Color(255, 210, 140, 77); glow.circle(0, 0, avR + 5); glow.fill();
     const avBg = this.graphics(root, 'HallTopAvatarBg', avX, topY, avR * 2, avR * 2, 5);
@@ -320,9 +313,9 @@ export class LearningHall extends Component {
       this.label(root, 'HallTopAvatarEmoji', av.emoji, avX, topY, avR * 1.35, avR * 1.35, avR * 0.95, new Color(255, 233, 200), 'center', 6);
     }
     // 左上：头像右侧上方名字，下方金棕胶囊段位 + 已识字数（严格不重叠）
-    const textStart = avX + avR + 14; // 文字块左边界，紧贴头像右边缘
+    const textStart = avX + avR + 6; // 文字块左边界，紧贴头像右边缘
     this.label(root, 'HallPlayerName', profile.playerName || '少年卜官', textStart + 70, topY + 10, 140, 26, 17, t.ink, 'center', 6);
-    this.drawRankBadge(root, rankIdx, textStart + 54, topY - 18, t);
+    this.drawRankBadge(root, rankIdx, textStart + 70, topY - 18, t);
     this.label(root, 'HallCollectedHint', `已识 ${collected} 字`, textStart + 54 + 54 + 6 + 45, topY - 18, 90, 22, 13, t.sub, 'center', 6);
     // 右侧货币（名+值一行，对齐 .rightbar .cur）+ 家长按钮
     this.drawCurrencies(root, progress, this.vw(0.150), topY, t);
@@ -435,12 +428,9 @@ export class LearningHall extends Component {
     const node = this.graphics(root, 'HallReviewSug', x, y, w, h, 3);
     node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 10); node.fill();
     node.strokeColor = t.cardStroke; node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 9); node.stroke();
-    // 顶部：badge "复习" + 标题 + 去复习按钮
+    // 顶部：标题（左上角）+ 去复习按钮
     const topY = y + h / 2 - 22;
-    const badge = this.graphics(root, 'HallSugBadge', x - w / 2 + 40, topY, 44, 16, 6);
-    badge.fillColor = new Color(168, 124, 64, 255); badge.roundRect(-22, -8, 44, 16, 3); badge.fill();
-    this.label(root, 'HallSugBadgeTxt', '复习', x - w / 2 + 40, topY, 40, 14, 9, new Color(255, 233, 200), 'center', 7);
-    this.label(root, 'HallSugTitle', '建议复习', x - w / 2 + 64, topY, 120, 20, 14, new Color(255, 240, 214), 'left', 6);
+    this.titleLabel(root, 'HallSugTitle', '建议复习', x - w / 2 + 8, topY, 120, 20, 14, new Color(255, 240, 214), 6);
     this.button(root, 'HallSugGo', '去复习 ›', x + w / 2 - 54, topY, 80, 28, true);
     // 中间：代表性易错大字（现代汉字，整体下移避免与顶部标题重叠）
     const glyphY = y - 6;
@@ -470,12 +460,9 @@ export class LearningHall extends Component {
     const node = this.graphics(root, 'HallCodexEntry', x, y, w, h, 3);
     node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 10); node.fill();
     node.strokeColor = t.cardStroke; node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 9); node.stroke();
-    // 顶部：badge "图鉴" + 标题 + 计数
+    // 顶部：标题（左上角）+ 计数
     const topY = y + h / 2 - 18;
-    const badge = this.graphics(root, 'HallCodexBadge', x - w / 2 + 40, topY, 44, 16, 6);
-    badge.fillColor = new Color(168, 124, 64, 255); badge.roundRect(-22, -8, 44, 16, 3); badge.fill();
-    this.label(root, 'HallCodexBadgeTxt', '图鉴', x - w / 2 + 40, topY, 40, 14, 9, new Color(255, 233, 200), 'center', 7);
-    this.label(root, 'HallCodexEntryTitle', '图鉴进度', x - w / 2 + 64, topY, 120, 20, 14, new Color(255, 240, 214), 'left', 6);
+    this.titleLabel(root, 'HallCodexEntryTitle', '图鉴进度', x - w / 2 + 8, topY, 120, 20, 14, new Color(255, 240, 214), 6);
     this.label(root, 'HallCodexEntryCount', `${collected} / ${total}`, x + w / 2 - 18, topY, 90, 22, 16, new Color(255, 240, 214), 'right', 6);
     // 进度条
     const barW = 300, barH = 6; const pct = total > 0 ? collected / total : 0;
@@ -561,7 +548,7 @@ export class LearningHall extends Component {
       // 名字 + 经验需求（对齐 HTML .rinfo，图标右侧垂直居中）
       const nameColor = isCur ? new Color(200, 62, 44) : (t.night ? new Color(255, 240, 214) : new Color(58, 36, 16));
       this.label(root, `HallRankRowName-${i}`, rank.name, -40, y + 3, 220, 24, 15, nameColor, 'left', 6);
-      const req = (i === RANKS.length - 1) ? '150字全收集 + 经验12000' : `累计经验 ${rank.threshold}`;
+      const req = (i === RANKS.length - 1) ? `收集全部 ${this.cards().length} 个甲骨文字 + 经验12000` : `累计经验 ${rank.threshold}`;
       this.label(root, `HallRankRowReq-${i}`, req, -30, y - 15, 240, 20, 10, t.night ? new Color(216, 200, 168) : new Color(106, 74, 42), 'left', 6);
       // 状态（对齐 HTML .rstate：当前红 / 已达成绿 / 未解锁灰）
       const state = isCur ? '当前' : (reached ? '已达成' : '未解锁');
@@ -571,55 +558,6 @@ export class LearningHall extends Component {
     this.button(root, 'HallRanksBack', '返回大厅', 0, -230, 220, 50, true);
   }
 
-  /** The launch screen intentionally has one clear primary action and lighter secondary actions. */
-  private drawHomeHero(root: Node) {
-    const hero = this.graphics(root, 'HallHeroRibbon', 0, 196, 1000, 56, 2);
-    hero.fillColor = new Color(43, 78, 109, 224); hero.roundRect(-500, -28, 1000, 56, 18); hero.fill();
-    hero.strokeColor = new Color(242, 199, 118, 142); hero.lineWidth = 2; hero.roundRect(-497, -25, 994, 50, 15); hero.stroke();
-    for (let x = -440; x <= 440; x += 55) {
-      hero.fillColor = new Color(255, 229, 163, 25); hero.circle(x, 0, 3); hero.fill();
-    }
-    this.label(root, 'HallMotto', '每一个字，都是一次穿越三千年的学习', 0, 201, 820, 30, 25, new Color(255, 239, 197));
-    this.label(root, 'HallDescription', '探索殷墟、收集甲骨文字，在游戏中读懂它们的现代含义。', 0, 173, 820, 24, 14, new Color(211, 225, 235));
-  }
-
-  private drawHomeFeature(root: Node, collected: number) {
-    const x = -280; const y = 62; const width = 570; const height = 190;
-    const card = this.graphics(root, 'HallEnter', x, y, width, height, 2);
-    card.fillColor = new Color(165, 77, 49, 248); card.roundRect(-width / 2, -height / 2, width, height, 23); card.fill();
-    card.fillColor = new Color(110, 47, 45, 120); card.roundRect(52, -height / 2, width / 2 - 52, height, 0); card.fill();
-    card.strokeColor = new Color(255, 220, 153, 202); card.lineWidth = 3; card.roundRect(-width / 2 + 2, -height / 2 + 2, width - 4, height - 4, 20); card.stroke();
-    card.fillColor = new Color(255, 244, 211, 42); card.circle(177, 9, 78); card.fill();
-    card.strokeColor = new Color(255, 235, 187, 92); card.lineWidth = 2; card.circle(177, 9, 65); card.stroke();
-    this.label(root, 'HallEnterTag', '推荐探索', -470, 125, 125, 24, 13, new Color(255, 236, 188), 'left', 5);
-    this.label(root, 'HallEnterTitle', '进入殷墟', -420, 82, 220, 44, 31, new Color(255, 248, 224), 'left', 5);
-    this.label(root, 'HallEnterDetail', '从城内出生点出发，继续探索田野、河流与宗庙。', -420, 33, 232, 48, 15, new Color(255, 234, 210), 'left', 5);
-    this.label(root, 'HallEnterCount', `已发现 ${collected} 个甲骨文字`, -420, -26, 230, 25, 14, new Color(255, 218, 160), 'left', 5);
-    this.label(root, 'HallEnterGlyph', '城', -103, 67, 62, 62, 36, new Color(255, 244, 210), 'center', 5);
-    this.button(root, 'HallEnterAction', '立即探索  ›', -405, -62, 190, 44, true);
-  }
-
-  private drawHomeQuick(root: Node, name: string, title: string, detail: string, x: number, y: number, color: Color, glyph: string) {
-    const width = 360; const height = 94;
-    const card = this.graphics(root, name, x, y, width, height, 2);
-    card.fillColor = color; card.roundRect(-width / 2, -height / 2, width, height, 18); card.fill();
-    card.strokeColor = new Color(239, 218, 179, 155); card.lineWidth = 2; card.roundRect(-width / 2 + 2, -height / 2 + 2, width - 4, height - 4, 16); card.stroke();
-    card.fillColor = new Color(255, 247, 219, 36); card.circle(122, 0, 42); card.fill();
-    this.label(root, `${name}Title`, title, x - 77, y + 16, 185, 30, 22, new Color(255, 247, 221), 'left', 5);
-    this.label(root, `${name}Detail`, detail, x - 77, y - 18, 185, 28, 13, new Color(239, 234, 224), 'left', 5);
-    this.label(root, `${name}Glyph`, glyph, x + 122, y, 70, 70, 33, new Color(255, 246, 215), 'center', 5);
-  }
-
-  private drawHomeStatus(root: Node, name: string, title: string, detail: string, x: number, y: number, color: Color, glyph: string) {
-    const width = 300; const height = 114;
-    const card = this.graphics(root, name, x, y, width, height, 2);
-    card.fillColor = color; card.roundRect(-width / 2, -height / 2, width, height, 18); card.fill();
-    card.strokeColor = new Color(235, 225, 197, 135); card.lineWidth = 2; card.roundRect(-width / 2 + 2, -height / 2 + 2, width - 4, height - 4, 16); card.stroke();
-    card.fillColor = new Color(255, 246, 213, 38); card.circle(95, 0, 36); card.fill();
-    this.label(root, `${name}Title`, title, x - 52, y + 20, 172, 30, 21, new Color(255, 248, 224), 'left', 5);
-    this.label(root, `${name}Detail`, detail, x - 52, y - 19, 172, 32, 13, new Color(239, 237, 226), 'left', 5);
-    this.label(root, `${name}Glyph`, glyph, x + 95, y, 58, 58, 28, new Color(255, 247, 217), 'center', 5);
-  }
 
   private renderCodex(selectedId: string | null) {
     const root = this.createRoot('HallCodex', 'codex');
@@ -764,6 +702,113 @@ export class LearningHall extends Component {
     this.panel(root, 'HallWrongBookPanel', 0, -20, 760, 320, new Color(76, 57, 62), false);
     this.label(root, 'HallWrongBookIcon', '⭐', 0, 78, 96, 96, 52, new Color(255, 233, 176), 'center', 6);
     this.label(root, 'HallWrongBookTip', '功能未完善', 0, -8, 420, 56, 30, new Color(255, 240, 214), 'center', 6);
+  }
+
+  private drawWechatButton(root: Node, name: string, x: number, y: number, w: number, h: number, text: string) {
+    const node = this.graphics(root, name, x, y, w, h, 6);
+    node.fillColor = new Color(7, 193, 96, 255); node.roundRect(-w / 2, -h / 2, w, h, 12); node.fill();
+    node.strokeColor = new Color(6, 165, 82, 255); node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 11); node.stroke();
+    this.label(root, `${name}Icon`, '💬', x - w / 2 + 24, y, 28, 28, 18, new Color(255, 255, 255), 'center', 7);
+    this.label(root, `${name}Txt`, text, x + 10, y, w - 52, 28, 18, new Color(255, 255, 255), 'center', 7);
+  }
+
+  private drawParentCenter() {
+    const root = this.createRoot('HallParentCenter', 'parentCenter');
+    const profile = this.callbacks!.getProfile();
+    const t = this.theme();
+    const wechats = profile.wechats || [];
+
+    // 遮罩 + 居中面板（沿用设置面板风格）
+    const mask = this.graphics(root, 'HallPCMask', 0, 0, 1280, 720, 1);
+    mask.fillColor = new Color(40, 28, 12, 180); mask.rect(-640, -360, 1280, 720); mask.fill();
+    const pw = 560, ph = 460;
+    const panel = this.graphics(root, 'HallPCPanel', 0, 0, pw, ph, 3);
+    panel.fillColor = t.night ? new Color(24, 18, 12, 238) : new Color(255, 248, 228, 238);
+    panel.roundRect(-pw / 2, -ph / 2, pw, ph, 22); panel.fill();
+    panel.strokeColor = t.cardStroke; panel.lineWidth = 4; panel.roundRect(-pw / 2 + 2, -ph / 2 + 2, pw - 4, ph - 4, 19); panel.stroke();
+
+    // 标题 + 关闭
+    this.label(root, 'HallPCTitle', '家长中心', -158, 200, 200, 32, 20, t.ink, 'left', 6);
+    const close = this.graphics(root, 'HallPCClose', 252, 200, 30, 30, 6);
+    close.fillColor = t.night ? new Color(255, 210, 140, 40) : new Color(110, 76, 40, 40); close.roundRect(-15, -15, 30, 30, 15); close.fill();
+    close.strokeColor = t.night ? new Color(255, 210, 140, 120) : new Color(110, 76, 40, 120); close.lineWidth = 1; close.roundRect(-14, -14, 28, 28, 14); close.stroke();
+    this.label(root, 'HallPCCloseX', '✕', 252, 200, 20, 20, 16, t.ink, 'center', 7);
+
+    // 小节标题：微信账号
+    this.drawSectionTitle(root, 'HallPCSecTitle', '微信账号', 150, t);
+
+    // 已绑定账号列表：头像在左，文字在右，每行一个解绑按钮
+    wechats.forEach((w, i) => {
+      const cy = 110 - i * 70;
+      const avR = 22;
+      // 绿色圆形头像背景
+      const av = this.graphics(root, `HallPCWechatAvatar-${i}`, -180, cy, avR * 2, avR * 2, 6);
+      av.fillColor = new Color(7, 193, 96, 255); av.circle(0, 0, avR); av.fill();
+      this.label(root, `HallPCWechatIcon-${i}`, '💬', -180, cy, 32, 32, 18, new Color(255, 255, 255), 'center', 7);
+      // 文字使用真正左对齐 titleLabel，x 即左边缘
+      const textX = -130;
+      this.titleLabel(root, `HallPCBound-${i}`, `已绑定 · ${w.nickname || '微信用户'}`, textX, cy + 10, 220, 24, 16, t.ink, 7);
+      this.titleLabel(root, `HallPCBoundSub-${i}`, '微信账号已关联', textX, cy - 15, 220, 20, 12, t.sub, 7);
+      // 解绑按钮
+      const unbind = this.graphics(root, `HallPCUnbind-${i}`, 196, cy, 84, 32, 6);
+      unbind.fillColor = t.night ? new Color(120, 60, 50, 160) : new Color(150, 90, 80, 150); unbind.roundRect(-42, -16, 84, 32, 8); unbind.fill();
+      this.label(root, `HallPCUnbindTxt-${i}`, '解绑', 196, cy, 64, 22, 14, new Color(255, 235, 225), 'center', 7);
+    });
+
+    // 未满两个时显示「绑定微信」按钮 + 提示
+    if (wechats.length < 2) {
+      const bindY = 110 - wechats.length * 70;
+      this.drawWechatButton(root, 'HallPCBind', 0, bindY, 240, 52, '绑定微信');
+      this.label(root, 'HallPCBindLimit', '最多绑定两个账号', 0, bindY - 40, 240, 20, 12, t.sub, 'center', 6);
+    }
+
+    // 用途说明
+    this.label(root, 'HallPCNote', '绑定微信后，家长可在微信端查看孩子的学习报告。\n（家长端查看功能后续开放）', 0, -130, 500, 56, 13, t.sub, 'center', 6);
+  }
+
+  /** 绑定微信确认弹窗：说明当前为占位流程，确认后再本地标记已绑定 */
+  private drawBindWechatDialog() {
+    const root = this.createRoot('HallBindWechatDialog', 'bindWechatDialog');
+    const t = this.theme();
+    const dw = 420, dh = 220;
+    // 遮罩
+    const mask = this.graphics(root, 'HallBindWxMask', 0, 0, 1280, 720, 1);
+    mask.fillColor = new Color(0, 0, 0, 160); mask.rect(-640, -360, 1280, 720); mask.fill();
+    // 面板
+    const panel = this.graphics(root, 'HallBindWxPanel', 0, 0, dw, dh, 21);
+    panel.fillColor = t.night ? new Color(30, 24, 18, 245) : new Color(255, 248, 228, 245); panel.roundRect(-dw / 2, -dh / 2, dw, dh, 18); panel.fill();
+    panel.strokeColor = t.cardStroke; panel.lineWidth = 3; panel.roundRect(-dw / 2 + 2, -dh / 2 + 2, dw - 4, dh - 4, 15); panel.stroke();
+    // 标题
+    this.label(root, 'HallBindWxTitle', '绑定微信', 0, 78, 300, 32, 18, t.ink, 'center', 22);
+    // 说明
+    this.label(root, 'HallBindWxHint1', '请使用家长微信扫码完成绑定。', 0, 28, 380, 24, 14, t.ink, 'center', 22);
+    this.label(root, 'HallBindWxHint2', '（扫码授权功能开发中，点击确认可模拟绑定体验）', 0, 2, 380, 22, 12, t.sub, 'center', 22);
+    // 按钮
+    this.button(root, 'HallBindWxCancel', '取消', -100, -62, 140, 40, false, 22);
+    this.button(root, 'HallBindWxConfirm', '确认绑定', 100, -62, 140, 40, true, 22);
+  }
+
+  /** 解绑微信确认弹窗：强调需家长在微信小程序中验证（阶段1占位） */
+  private drawUnbindWechatDialog() {
+    const root = this.createRoot('HallUnbindWechatDialog', 'unbindWechatDialog');
+    const t = this.theme();
+    const dw = 420, dh = 220;
+    // 遮罩
+    const mask = this.graphics(root, 'HallUnbindWxMask', 0, 0, 1280, 720, 1);
+    mask.fillColor = new Color(0, 0, 0, 160); mask.rect(-640, -360, 1280, 720); mask.fill();
+    // 面板
+    const panel = this.graphics(root, 'HallUnbindWxPanel', 0, 0, dw, dh, 21);
+    panel.fillColor = t.night ? new Color(30, 24, 18, 245) : new Color(255, 248, 228, 245); panel.roundRect(-dw / 2, -dh / 2, dw, dh, 18); panel.fill();
+    panel.strokeColor = t.cardStroke; panel.lineWidth = 3; panel.roundRect(-dw / 2 + 2, -dh / 2 + 2, dw - 4, dh - 4, 15); panel.stroke();
+    // 标题
+    this.label(root, 'HallUnbindWxTitle', '解绑微信', 0, 78, 300, 32, 18, t.ink, 'center', 22);
+    // 说明
+    this.label(root, 'HallUnbindWxHint1', '解绑需家长验证。', 0, 30, 380, 24, 14, t.ink, 'center', 22);
+    this.label(root, 'HallUnbindWxHint2', '请家长在微信小程序中确认后完成解绑。', 0, 4, 380, 22, 12, t.sub, 'center', 22);
+    this.label(root, 'HallUnbindWxHint3', '（家长端验证功能开发中，点击确认可模拟解绑）', 0, -20, 380, 22, 12, t.sub, 'center', 22);
+    // 按钮
+    this.button(root, 'HallUnbindWxCancel', '取消', -100, -62, 140, 40, false, 22);
+    this.button(root, 'HallUnbindWxConfirm', '确认解绑', 100, -62, 140, 40, true, 22);
   }
 
   private drawSettingsPanel() {
@@ -952,32 +997,32 @@ export class LearningHall extends Component {
     const point = event.getUILocation(); const size = view.getVisibleSize();
     const x = point.x - size.width / 2; const y = point.y - size.height / 2;
     if (!this.isOpen) {
-      if (this.hit(x, y, 295, 309, 120, 52)) this.open();
+      if (this.hit(x, y, 295, 309, 120, 52)) { this.playSfx('tap'); this.open(); }
       return;
     }
     if (this.mode === 'home') {
-      if (this.hitCircle(x, y, -16, -6, 72)) { this.callbacks?.enterYinXu(); this.close(); }
-      else if (this.hit(x, y, -442, -6, 180, 245)) this.render('ranks');
-      else if (this.hit(x, y, 540, 109, 86, 30)) this.openReviewLibrary();
-      else if (this.hit(x, y, 424, -125, 340, 112)) this.render('codex');
-      else if (this.hit(x, y, 540, 320, 74, 30)) this.render('parent');
-      else if (this.hit(x, y, -216, -281, 60, 60)) this.render('home');
-      else if (this.hit(x, y, -130, -281, 60, 60)) this.openReviewLibrary();
-      else if (this.hit(x, y, -43, -281, 60, 60)) this.render('codex');
-      else if (this.hit(x, y, 43, -281, 60, 60)) this.render('parent');
-      else if (this.hit(x, y, 130, -281, 60, 60)) this.render('progress');
-      else if (this.hit(x, y, 216, -281, 60, 60)) this.render('settings');
+      if (this.hitCircle(x, y, -16, -6, 72)) { this.playSfx('confirm'); this.callbacks?.enterYinXu(); this.close(); }
+      else if (this.hit(x, y, -442, -6, 180, 245)) { this.playSfx('tap'); this.render('ranks'); }
+      else if (this.hit(x, y, 540, 109, 86, 30)) { this.playSfx('tap'); this.openReviewLibrary(); }
+      else if (this.hit(x, y, 424, -140, 340, 112)) { this.playSfx('tap'); this.render('codex'); }
+      else if (this.hit(x, y, 540, 320, 74, 30)) { this.playSfx('tap'); this.render('parentCenter'); }
+      else if (this.hit(x, y, -216, -281, 60, 60)) { this.playSfx('back'); this.render('home'); }
+      else if (this.hit(x, y, -130, -281, 60, 60)) { this.playSfx('tap'); this.openReviewLibrary(); }
+      else if (this.hit(x, y, -43, -281, 60, 60)) { this.playSfx('tap'); this.render('codex'); }
+      else if (this.hit(x, y, 43, -281, 60, 60)) { this.playSfx('tap'); this.render('parent'); }
+      else if (this.hit(x, y, 130, -281, 60, 60)) { this.playSfx('tap'); this.render('progress'); }
+      else if (this.hit(x, y, 216, -281, 60, 60)) { this.playSfx('tap'); this.render('settings'); }
       return;
     }
     if (this.mode === 'ranks') {
-      if (this.hit(x, y, 0, -230, 220, 50)) this.render('home');
+      if (this.hit(x, y, 0, -230, 220, 50)) { this.playSfx('back'); this.render('home'); }
       return;
     }
     if (this.mode === 'settings') {
       if (this.nameDialogOpen) {
         // 点击弹窗面板外区域或取消 → 关闭
         if (!this.hit(x, y, 0, 0, 420, 200) || this.hit(x, y, -90, -58, 120, 40)) {
-          this.nameDialogOpen = false; this.render('settings'); return;
+          this.playSfx('tap'); this.nameDialogOpen = false; this.render('settings'); return;
         }
         // 保存
         if (this.hit(x, y, 90, -58, 120, 40)) {
@@ -985,29 +1030,68 @@ export class LearningHall extends Component {
           const edit = editNode?.getComponent(EditBox);
           const newName = edit?.string?.trim() || '少年卜官';
           this.callbacks?.setName(newName);
-          this.nameDialogOpen = false; this.render('settings'); return;
+          this.playSfx('confirm'); this.nameDialogOpen = false; this.render('settings'); return;
         }
         return;
       }
-      AVATARS.forEach((av, i) => { if (this.hit(x, y, 18 + i * 44, 214, 36, 36)) { this.callbacks?.setAvatar(av.id); this.render('settings'); } });
-      if (this.hit(x, y, 18 + AVATARS.length * 44, 214, 36, 36)) { this.uploadAvatar(); }
-      else if (this.hit(x, y, 70, 162, 240, 38)) { this.nameDialogOpen = true; this.render('settings'); }
-      else if (this.hit(x, y, 198, 50, 46, 24)) { this.callbacks?.toggleMusic(); this.render('settings'); }
-      else if (this.hit(x, y, 198, 14, 46, 24)) { this.callbacks?.toggleSfx(); this.render('settings'); }
-      else if (this.hit(x, y, 198, -104, 46, 24)) { this.callbacks?.toggleNight(); this.render('settings'); }
-      else if (this.hit(x, y, 252, 288, 30, 30)) this.render('home');
+      AVATARS.forEach((av, i) => { if (this.hit(x, y, 18 + i * 44, 214, 36, 36)) { this.playSfx('tap'); this.callbacks?.setAvatar(av.id); this.render('settings'); } });
+      if (this.hit(x, y, 18 + AVATARS.length * 44, 214, 36, 36)) { this.playSfx('tap'); this.uploadAvatar(); }
+      else if (this.hit(x, y, 70, 162, 240, 38)) { this.playSfx('tap'); this.nameDialogOpen = true; this.render('settings'); }
+      else if (this.hit(x, y, 198, 50, 46, 24)) { this.playSfx('toggle'); this.callbacks?.toggleMusic(); this.render('settings'); }
+      else if (this.hit(x, y, 198, 14, 46, 24)) { this.playSfx('toggle'); this.callbacks?.toggleSfx(); this.render('settings'); }
+      else if (this.hit(x, y, 198, -104, 46, 24)) { this.playSfx('toggle'); this.callbacks?.toggleNight(); this.render('settings'); }
+      else if (this.hit(x, y, 252, 288, 30, 30)) { this.playSfx('back'); this.render('home'); }
       return;
     }
-    if (this.hit(x, y, 480, 286, 150, 48)) { this.render('home'); return; }
+    if (this.mode === 'parentCenter') {
+      if (this.hit(x, y, 252, 200, 30, 30)) { this.playSfx('tap'); this.render('home'); return; }
+      const wechats = this.callbacks?.getProfile().wechats || [];
+      // 解绑按钮：每个已绑定账号右侧 → 打开需家长验证的确认弹窗
+      wechats.forEach((_, i) => {
+        const cy = 110 - i * 70;
+        if (this.hit(x, y, 196, cy, 84, 32)) { this.playSfx('tap'); this.pendingUnbindIndex = i; this.render('unbindWechatDialog'); }
+      });
+      // 绑定按钮：未满两个时显示
+      if (wechats.length < 2) {
+        const bindY = 110 - wechats.length * 70;
+        if (this.hit(x, y, 0, bindY, 240, 52)) { this.playSfx('confirm'); this.render('bindWechatDialog'); }
+      }
+      return;
+    }
+    if (this.mode === 'bindWechatDialog') {
+      if (this.hit(x, y, -100, -62, 140, 40)) { this.playSfx('back'); this.render('parentCenter'); return; }
+      if (this.hit(x, y, 100, -62, 140, 40)) {
+        this.playSfx('confirm');
+        const wechats = this.callbacks?.getProfile().wechats || [];
+        this.callbacks?.bindWechat(true, wechats.length, { nickname: '微信用户' });
+        this.render('parentCenter');
+        return;
+      }
+      return;
+    }
+    if (this.mode === 'unbindWechatDialog') {
+      if (this.hit(x, y, -100, -62, 140, 40)) { this.playSfx('back'); this.render('parentCenter'); return; }
+      if (this.hit(x, y, 100, -62, 140, 40)) {
+        this.playSfx('confirm');
+        if (this.pendingUnbindIndex >= 0) {
+          this.callbacks?.bindWechat(false, this.pendingUnbindIndex);
+          this.pendingUnbindIndex = -1;
+        }
+        this.render('parentCenter');
+        return;
+      }
+      return;
+    }
+    if (this.hit(x, y, 480, 286, 150, 48)) { this.playSfx('back'); this.render('home'); return; }
     if (this.mode === 'codex') {
       this.cards().forEach((card, index) => {
         const cardX = -430 + (index % 4) * 160; const cardY = 105 - Math.floor(index / 4) * 200;
-        if (card.unlocked && this.hit(x, y, cardX, cardY, 138, 168)) this.render('codex', card.id);
+        if (card.unlocked && this.hit(x, y, cardX, cardY, 138, 168)) { this.playSfx('tap'); this.render('codex', card.id); }
       });
     } else if (this.mode === 'review') {
       if (this.reviewLibraryOpen) {
-        if (this.cards().filter(card => card.unlocked).length === 0 && this.hit(x, y, 0, -110, 220, 58)) { this.callbacks?.enterYinXu(); this.close(); }
-        else if (this.hit(x, y, 0, -226, 230, 58)) this.beginReview();
+        if (this.cards().filter(card => card.unlocked).length === 0 && this.hit(x, y, 0, -110, 220, 58)) { this.playSfx('confirm'); this.callbacks?.enterYinXu(); this.close(); }
+        else if (this.hit(x, y, 0, -226, 230, 58)) { this.playSfx('confirm'); this.beginReview(); }
         return;
       }
       const positions: Array<[number, number]> = [[5, 72], [295, 72], [5, -52], [295, -52]];
@@ -1020,11 +1104,12 @@ export class LearningHall extends Component {
         if (correct) this.reviewCorrect++;
         else if (!this.reviewMistakes.some(card => card.id === question.id)) this.reviewMistakes.push(question);
         this.reviewIndex++;
+        this.playSfx(correct ? 'confirm' : 'tap');
         this.render('review');
       });
     } else if (this.mode === 'reviewResult') {
-      if (this.hit(x, y, -130, -125, 210, 58)) this.beginReview();
-      else if (this.hit(x, y, 130, -125, 210, 58)) this.render('codex');
+      if (this.hit(x, y, -130, -125, 210, 58)) { this.playSfx('confirm'); this.beginReview(); }
+      else if (this.hit(x, y, 130, -125, 210, 58)) { this.playSfx('tap'); this.render('codex'); }
     }
   }
 
@@ -1034,6 +1119,57 @@ export class LearningHall extends Component {
 
   private hitCircle(x: number, y: number, centerX: number, centerY: number, radius: number) {
     return (x - centerX) ** 2 + (y - centerY) ** 2 <= radius ** 2;
+  }
+
+  // ---- 木质咔哒按键音效（Web Audio 程序化合成，无需音频素材）----
+  private audioCtx: any = null;
+  private getAudioCtx(): any {
+    if (typeof window === 'undefined') return null;
+    const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx) return null;
+    if (!this.audioCtx) this.audioCtx = new Ctx();
+    if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+    return this.audioCtx;
+  }
+
+  /** 按键音效：木质咔哒（Web Audio 程序化合成短噪声，无需音频素材）。
+   *  复刻自试听通过的 wood_click：极短白噪声 → 一阶低通 → 快指数衰减。
+   *  kind 仅在亮度/长度上做细微区分，整体保持同一木键手感。受 sfxOn 控制。 */
+  private playSfx(kind: 'tap' | 'confirm' | 'toggle' | 'back' = 'tap') {
+    const profile = this.callbacks?.getProfile();
+    if (!profile || !profile.sfxOn) return;
+    const ctx = this.getAudioCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    // 不同按键的细微参数（统一木质咔哒，仅在亮度/长度上微调）
+    let dur = 0.013, cutoff = 0.40, vol = 0.55, attack = 0.001, decay = 380;
+    if (kind === 'confirm') { cutoff = 0.50; dur = 0.016; decay = 340; vol = 0.58; }
+    else if (kind === 'toggle') { cutoff = 0.45; dur = 0.010; decay = 420; vol = 0.50; }
+    else if (kind === 'back')   { cutoff = 0.35; dur = 0.014; decay = 400; vol = 0.50; }
+
+    const sr = ctx.sampleRate;
+    const n = Math.max(1, Math.floor(dur * sr));
+    const buffer = ctx.createBuffer(1, n, sr);
+    const data = buffer.getChannelData(0);
+    let lp = 0;
+    for (let i = 0; i < n; i++) {
+      const x = Math.random() * 2 - 1;                       // 白噪声
+      lp += (x - lp) * cutoff;                               // 一阶低通，模拟木腔
+      const t = i / sr;
+      const a = t < attack ? t / attack : 1.0;               // 极快起音
+      const env = a * Math.exp(-(t - attack) * decay);       // 指数衰减
+      let s = lp * vol * env;
+      if (s > 1) s = 1; else if (s < -1) s = -1;
+      data[i] = s;
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const master = ctx.createGain();
+    master.gain.value = 0.7;                                 // 整体音量，避免连点过响
+    src.connect(master); master.connect(ctx.destination);
+    src.start(now);
   }
 
   private shuffle<T>(items: T[]) {
@@ -1085,11 +1221,32 @@ export class LearningHall extends Component {
     const node = new Node(name); node.parent = parent; node.setPosition(x, y, z); node.addComponent(UITransform).setContentSize(width, height); return node.addComponent(Graphics);
   }
 
+  /**
+   * 通用文字节点。注意：Cocos 的 Label 节点 anchor 默认为 (0.5, 0.5)，
+   * 即使 align='left' 也只是「框内文字左对齐」，x 仍是「节点中心」。
+   * 因此传 left 时 x 会被当成文字框中心，文字框会向左延伸，容易导致标题出框。
+   * 若需要「x 即文字真实左边缘」的贴左标题，请用 titleLabel()。
+   */
   private label(parent: Node, name: string, text: string, x: number, y: number, width: number, height: number, fontSize: number, color: Color, align: 'left' | 'center' = 'center', z = 2) {
     const node = new Node(name); node.parent = parent; node.setPosition(x, y, z); node.addComponent(UITransform).setContentSize(width, height);
     const label = node.addComponent(Label); label.string = text; label.fontSize = fontSize; label.lineHeight = fontSize + 7; label.color = color;
     label.enableWrapText = true; label.overflow = Label.Overflow.SHRINK;
     label.horizontalAlign = align === 'left' ? Label.HorizontalAlign.LEFT : Label.HorizontalAlign.CENTER; label.verticalAlign = Label.VerticalAlign.CENTER;
+    return label;
+  }
+
+  /**
+   * 真正左对齐的标题 Label：节点 anchor 设为 (0, 0.5)，x 即文字真实左边缘，
+   * 不会出现 label() 默认 center anchor 导致的出框问题。用于卡片左上角标题等贴左场景。
+   */
+  private titleLabel(parent: Node, name: string, text: string, leftX: number, y: number, width: number, height: number, fontSize: number, color: Color, z = 6) {
+    const node = new Node(name); node.parent = parent; node.setPosition(leftX, y, z);
+    const transform = node.addComponent(UITransform);
+    transform.setContentSize(width, height); transform.setAnchorPoint(0, 0.5);
+    const label = node.addComponent(Label);
+    label.string = text; label.fontSize = fontSize; label.lineHeight = fontSize + 6; label.color = color;
+    label.horizontalAlign = Label.HorizontalAlign.LEFT; label.verticalAlign = Label.VerticalAlign.CENTER;
+    label.overflow = Label.Overflow.CLAMP; label.enableWrapText = false;
     return label;
   }
 
