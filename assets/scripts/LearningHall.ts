@@ -31,8 +31,8 @@ const RANKS = [
 const AVATARS = [
   { id: 'oracle-apprentice', name: '小卜官', emoji: '🧑', path: 'characters/oracle-apprentice/down-0/spriteFrame' },
   { id: 'villager-farmer-v2', name: '乡民', emoji: '🧒', path: 'characters/villager-farmer-v2/down-0/spriteFrame' },
-  { id: 'villager-woman-v2', name: '织女', emoji: '👦', path: 'characters/villager-woman-v2/down-0/spriteFrame' },
-  { id: 'resting-douli-v3', name: '行者', emoji: '👧', path: 'characters/resting-douli-v3/idle-0/spriteFrame' },
+  { id: 'villager-woman-v2', name: '织女', emoji: '👧', path: 'characters/villager-woman-v2/down-0/spriteFrame' },
+  { id: 'resting-douli-v3', name: '行者', emoji: '👦', path: 'characters/resting-douli-v3/idle-0/spriteFrame' },
 ] as const;
 
 export type HallCard = {
@@ -330,15 +330,18 @@ export class LearningHall extends Component {
   }
 
   private drawRankBadge(root: Node, rankIdx: number, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
-    // 固定金棕渐变（对齐 .rankbadge，不随段位变色）
+    // 随段位变色：用 RANKS 每阶的 c1(顶渐变)/c2(底渐变)/bd(描边) 配色
     const rank = RANKS[rankIdx];
+    const c1 = this.hexToColor(rank.c1);
+    const c2 = this.hexToColor(rank.c2);
+    const bd = this.hexToColor(rank.bd);
     const w = 108, h = 26;
     const node = this.graphics(root, 'HallRankBadge', x, y, w, h, 6);
-    node.fillColor = new Color(168, 124, 64, 255); node.roundRect(-w / 2, -h / 2, w, h, 13); node.fill();
-    node.fillColor = new Color(122, 84, 42, 230); node.roundRect(-w / 2, 2, w, h / 2 - 2, 0); node.fill();
-    node.strokeColor = new Color(255, 228, 165, 230); node.lineWidth = 1; node.roundRect(-w / 2, -h / 2, w, h, 13); node.stroke();
-    this.label(root, 'HallRankIcon', rank.icon, x - w / 2 + 16, y, 24, 24, 14, new Color(255, 248, 236), 'center', 7);
-    this.label(root, 'HallRankName', rank.name, x + 6, y, w - 28, 20, 12, new Color(255, 248, 236), 'left', 7);
+    node.fillColor = c1; node.roundRect(-w / 2, -h / 2, w, h, 13); node.fill();
+    node.fillColor = c2; node.roundRect(-w / 2, 2, w, h / 2 - 2, 0); node.fill();
+    node.strokeColor = bd; node.lineWidth = 1; node.roundRect(-w / 2, -h / 2, w, h, 13); node.stroke();
+    this.label(root, 'HallRankIcon', rank.icon, x - w / 2 + 16, y, 24, 24, 14, new Color(255, 252, 245), 'center', 7);
+    this.label(root, 'HallRankName', rank.name, x + 6, y, w - 28, 20, 12, new Color(255, 252, 245), 'left', 7);
   }
 
   private drawCurrencies(root: Node, progress: { ink: number; coins: number; experience: number }, startX: number, y: number, t: ReturnType<LearningHall['theme']>) {
