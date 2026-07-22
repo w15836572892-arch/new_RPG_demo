@@ -113,6 +113,7 @@ type CitySave = {
   version: number; ink: number; coins: number; experience: number;
   unlockedOracleIds: string[]; mastery: Record<string, LearningRecord>;
   ownedProductIds: string[]; equippedShellId: string; placedDecorationIds: string[];
+  playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
 };
 
 /**
@@ -595,9 +596,53 @@ export class YinXuCity extends Component {
       } satisfies HallCard)),
       getProgress: () => ({
         ink: this.save.ink,
+        coins: this.save.coins,
+        experience: this.save.experience,
         attempts: Object.values(this.save.mastery).reduce((sum, record) => sum + record.attempts, 0),
         correct: Object.values(this.save.mastery).reduce((sum, record) => sum + record.correctCount, 0),
       }),
+      getProfile: () => ({
+        playerName: this.save.playerName,
+        avatarId: this.save.avatarId,
+        avatarUrl: this.save.avatarUrl,
+        musicOn: this.save.musicOn,
+        sfxOn: this.save.sfxOn,
+        nightMode: this.save.nightMode,
+      }),
+      setName: (name) => {
+        const trimmed = name.trim();
+        this.save.playerName = trimmed.length > 0 ? trimmed : '少年卜官';
+        this.persistCitySave();
+      },
+      setAvatar: (avatarId, avatarUrl) => {
+        this.save.avatarId = avatarId;
+        if (avatarId === 'custom' && avatarUrl) {
+          this.save.avatarUrl = avatarUrl;
+        } else {
+          delete this.save.avatarUrl;
+        }
+        this.persistCitySave();
+      },
+      toggleMusic: () => {
+        this.save.musicOn = !this.save.musicOn;
+        this.persistCitySave();
+      },
+      toggleSfx: () => {
+        this.save.sfxOn = !this.save.sfxOn;
+        this.persistCitySave();
+      },
+      toggleNight: () => {
+        this.save.nightMode = !this.save.nightMode;
+        this.persistCitySave();
+      },
+      getWeakCards: () => {
+        return Object.entries(this.save.mastery)
+          .filter(([, record]) => record.attempts >= 1 && record.correctCount < record.attempts)
+          .map(([id, record]) => ({ id, rate: record.correctCount / record.attempts }))
+          .sort((a, b) => a.rate - b.rate)
+          .slice(0, 3)
+          .map(entry => entry.id);
+      },
       recordReview: (cardId, correct) => {
         const record = this.save.mastery[cardId] ?? { attempts: 0, bestStars: 0, correctCount: 0 };
         record.attempts++;
@@ -4356,7 +4401,7 @@ export class YinXuCity extends Component {
 
   private loadCitySave(): CitySave {
     const defaults: CitySave = {
-      version: 1,
+      version: 2,
       ink: 8,
       coins: 0,
       experience: 0,
@@ -4367,6 +4412,11 @@ export class YinXuCity extends Component {
       ownedProductIds: ['shell-clay'],
       equippedShellId: 'shell-clay',
       placedDecorationIds: [],
+      playerName: '少年卜官',
+      avatarId: 'oracle-apprentice',
+      musicOn: true,
+      sfxOn: true,
+      nightMode: false,
     };
     try {
       const raw = sys.localStorage.getItem(this.saveKey);
@@ -4375,6 +4425,7 @@ export class YinXuCity extends Component {
       return {
         ...defaults,
         ...parsed,
+        version: 2,
         ink: Math.max(0, Number(parsed.ink ?? defaults.ink)),
         coins: Math.max(0, Number(parsed.coins ?? defaults.coins)),
         experience: Math.max(0, Number(parsed.experience ?? defaults.experience)),
@@ -4382,6 +4433,12 @@ export class YinXuCity extends Component {
         mastery: parsed.mastery && typeof parsed.mastery === 'object' ? parsed.mastery : {},
         ownedProductIds: Array.from(new Set(['shell-clay', ...(Array.isArray(parsed.ownedProductIds) ? parsed.ownedProductIds : [])])),
         placedDecorationIds: Array.isArray(parsed.placedDecorationIds) ? parsed.placedDecorationIds : [],
+        playerName: typeof parsed.playerName === 'string' && parsed.playerName.trim().length > 0 ? parsed.playerName.trim() : defaults.playerName,
+        avatarId: typeof parsed.avatarId === 'string' && parsed.avatarId.length > 0 ? parsed.avatarId : defaults.avatarId,
+        avatarUrl: typeof parsed.avatarUrl === 'string' && parsed.avatarUrl.length > 0 ? parsed.avatarUrl : undefined,
+        musicOn: typeof parsed.musicOn === 'boolean' ? parsed.musicOn : defaults.musicOn,
+        sfxOn: typeof parsed.sfxOn === 'boolean' ? parsed.sfxOn : defaults.sfxOn,
+        nightMode: typeof parsed.nightMode === 'boolean' ? parsed.nightMode : defaults.nightMode,
       };
     } catch (error) {
       console.warn('[YinXuCity] save data could not be read, using a safe new profile.', error);
