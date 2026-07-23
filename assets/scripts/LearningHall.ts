@@ -98,8 +98,7 @@ export class LearningHall extends Component {
   private poemCorrect = 0;
   private poemLastCorrect = false;
   private enteringYinXu = false;
-  private yinXuLoadingStep = 0;
-  private readonly yinXuLoadingSteps = 6;
+  private yinXuTransitionTimer: ReturnType<typeof setTimeout> | null = null;
   private nameDialogOpen = false;
   private pendingUnbindIndex = -1;
   private hiddenGameNodes: Node[] = [];
@@ -143,7 +142,7 @@ export class LearningHall extends Component {
   }
 
   onDestroy() {
-    this.unschedule(this.advanceYinXuLoading);
+    this.stopYinXuTransition();
     input.off(Input.EventType.TOUCH_START, this.onTouchStart, this);
     input.off(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
     input.off(Input.EventType.TOUCH_END, this.onTouchEnd, this);
@@ -342,41 +341,29 @@ export class LearningHall extends Component {
     this.drawBottomNav(root, 'home', t);
   }
 
-  /** Six beats give the player a deliberate transition instead of abruptly swapping into the map. */
+  /** A short, single transition is more reliable than repeatedly rebuilding the UI during loading. */
   private beginYinXuTransition() {
     if (this.enteringYinXu) return;
     this.enteringYinXu = true;
-    this.yinXuLoadingStep = 0;
     this.render('enteringYinXu');
-    this.scheduleOnce(this.advanceYinXuLoading, 1);
-  }
-
-  private advanceYinXuLoading() {
-    if (!this.enteringYinXu) return;
-    this.yinXuLoadingStep++;
-    if (this.yinXuLoadingStep >= this.yinXuLoadingSteps) {
+    this.yinXuTransitionTimer = setTimeout(() => {
+      if (!this.enteringYinXu) return;
       this.callbacks?.enterYinXu();
       this.close();
-      return;
-    }
-    this.render('enteringYinXu');
-    this.scheduleOnce(this.advanceYinXuLoading, 1);
+    }, 3500);
   }
 
   private stopYinXuTransition() {
-    this.unschedule(this.advanceYinXuLoading);
+    if (this.yinXuTransitionTimer !== null) clearTimeout(this.yinXuTransitionTimer);
+    this.yinXuTransitionTimer = null;
     this.enteringYinXu = false;
-    this.yinXuLoadingStep = 0;
   }
 
   private renderEnteringYinXu() {
     const root = this.createRoot('HallEnteringYinXu', 'enteringYinXu');
     const t = this.theme();
-    const progress = this.yinXuLoadingStep / this.yinXuLoadingSteps;
-    const percent = Math.round(progress * 100);
     const unlocked = this.cards().filter(card => card.unlocked);
-    const current = unlocked.length > 0 ? unlocked[this.yinXuLoadingStep % unlocked.length] : null;
-    const dots = '●'.repeat((this.yinXuLoadingStep % 3) + 1);
+    const current = unlocked.length > 0 ? unlocked[0] : null;
 
     this.panel(root, 'HallYinXuLoadingPanel', 0, 0, 760, 430, t.card, false);
     this.label(root, 'HallYinXuLoadingEyebrow', '殷 商 寻 字 之 旅', 0, 146, 480, 28, 15, t.goldSub, 'center', 6);
@@ -387,17 +374,15 @@ export class LearningHall extends Component {
     seal.strokeColor = new Color(244, 207, 129, 255); seal.lineWidth = 3; seal.circle(0, 0, 66); seal.stroke();
     if (current) this.oracleGlyph(root, 'HallYinXuLoadingGlyph', current, 0, -15, 76, 86, 6);
     else this.label(root, 'HallYinXuLoadingGlyphFallback', '甲', 0, -15, 86, 94, 52, new Color(255, 236, 187), 'center', 6);
-    this.label(root, 'HallYinXuLoadingLoading', `正在加载 ${dots}`, 0, -122, 300, 26, 17, t.goldInk, 'center', 6);
+    this.label(root, 'HallYinXuLoadingLoading', '正在启程 · 即将抵达殷墟', 0, -122, 360, 26, 17, t.goldInk, 'center', 6);
     const barW = 500, barH = 18, barY = -170;
     const bar = this.graphics(root, 'HallYinXuLoadingBar', 0, barY, barW, barH, 5);
     bar.fillColor = new Color(33, 25, 34, 190); bar.roundRect(-barW / 2, -barH / 2, barW, barH, 9); bar.fill();
     bar.strokeColor = new Color(231, 187, 97, 220); bar.lineWidth = 2; bar.roundRect(-barW / 2, -barH / 2, barW, barH, 9); bar.stroke();
-    if (progress > 0) {
-      const fillW = Math.max(10, (barW - 8) * progress);
-      const fill = this.graphics(root, 'HallYinXuLoadingBarFill', -barW / 2 + 4 + fillW / 2, barY, fillW, barH - 8, 6);
-      fill.fillColor = new Color(221, 159, 67, 255); fill.roundRect(-fillW / 2, -(barH - 8) / 2, fillW, barH - 8, 5); fill.fill();
-    }
-    this.label(root, 'HallYinXuLoadingPercent', `${percent}%`, 0, -205, 120, 26, 18, t.goldInk, 'center', 6);
+    const fillW = barW - 8;
+    const fill = this.graphics(root, 'HallYinXuLoadingBarFill', 0, barY, fillW, barH - 8, 6);
+    fill.fillColor = new Color(221, 159, 67, 255); fill.roundRect(-fillW / 2, -(barH - 8) / 2, fillW, barH - 8, 5); fill.fill();
+    this.label(root, 'HallYinXuLoadingDuration', '3 秒后进入探索', 0, -205, 180, 26, 16, t.goldInk, 'center', 6);
   }
 
   /** Day/night-aware palette, mirrored from hall_full.html CSS.
