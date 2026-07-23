@@ -26,6 +26,7 @@ import {
 import { HallCard, LearningHall } from './LearningHall';
 import { LocalSaveDatabase } from './storage/LocalSaveDatabase';
 import { importedOracleCards } from './data/ImportedOracleCatalog';
+import { buildDivinationQuestions } from './data/DivinationQuestionBank';
 
 const { ccclass } = _decorator;
 
@@ -112,9 +113,10 @@ type ShopProduct = {
   quality: OracleQuality; slot?: number;
 };
 type LearningRecord = { attempts: number; bestStars: number; correctCount: number };
+type WrongBookEntry = { wrongCount: number; lastWrongAt: number };
 type CitySave = {
   version: number; ink: number; coins: number; experience: number;
-  unlockedOracleIds: string[]; mastery: Record<string, LearningRecord>;
+  unlockedOracleIds: string[]; mastery: Record<string, LearningRecord>; wrongBook: Record<string, WrongBookEntry>;
   ownedProductIds: string[]; equippedShellId: string; placedDecorationIds: string[];
   playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean;
   wechats: { nickname: string; avatarUrl?: string }[];
@@ -478,11 +480,7 @@ export class YinXuCity extends Component {
     },
     ...importedOracleCards,
   ];
-  private readonly divinationQuestions: DivinationQuestion[] = [
-    { villager: '阿禾', prompt: '卜官大人，明日是否会有雨？田里的禾苗正等着水呢。', answerId: 'rain', portrait: 'farmer' },
-    { villager: '妣青', prompt: '云散了许久，何时才能重新见到太阳？', answerId: 'sun', portrait: 'woman' },
-    { villager: '田伯', prompt: '今年新开的土地能否带来好收成？请替我们占问。', answerId: 'field', portrait: 'farmer' },
-  ];
+  private readonly divinationQuestions: DivinationQuestion[] = buildDivinationQuestions(this.oracleCards);
   private readonly shopProducts: ShopProduct[] = [
     { id: 'shell-clay', category: 'shell', name: '素面占卜龟甲', price: 0, description: '宗庙初始使用的朴素龟甲，保留自然灼裂纹理。', quality: 'blue' },
     { id: 'shell-vermilion', category: 'shell', name: '涂朱占卜龟甲', price: 180, description: '朱砂沿裂纹缓慢亮起，改变占卜龟甲与成功动画。', quality: 'red' },
@@ -528,6 +526,7 @@ export class YinXuCity extends Component {
   private riseButtonLabel: Label | null = null;
   private oracleCardNodes: Node[] = [];
   private oracleCardHome: Vec2[] = [];
+  private currentDivinationCards: OracleCardData[] = [];
   private draggingCardIndex = -1;
   private dragOffset = new Vec2();
   private correctCardIndex = -1;
@@ -691,11 +690,24 @@ export class YinXuCity extends Component {
           .slice(0, 3)
           .map(entry => entry.id);
       },
+      getWrongBook: () => Object.entries(this.save.wrongBook ?? {})
+        .map(([cardId, entry]) => ({ cardId, wrongCount: entry.wrongCount, lastWrongAt: entry.lastWrongAt }))
+        .sort((a, b) => b.lastWrongAt - a.lastWrongAt),
+      clearWrongBook: (cardId: string) => {
+        delete this.save.wrongBook[cardId];
+        this.persistCitySave();
+      },
       recordReview: (cardId, correct) => {
         const record = this.save.mastery[cardId] ?? { attempts: 0, bestStars: 0, correctCount: 0 };
         record.attempts++;
         if (correct) record.correctCount++;
         this.save.mastery[cardId] = record;
+        if (!correct) {
+          const wrong = this.save.wrongBook[cardId] ?? { wrongCount: 0, lastWrongAt: 0 };
+          wrong.wrongCount++;
+          wrong.lastWrongAt = Date.now();
+          this.save.wrongBook[cardId] = wrong;
+        }
         this.persistCitySave();
       },
       enterYinXu: () => {
@@ -4456,6 +4468,7 @@ export class YinXuCity extends Component {
         ...databaseSave,
         version: 2,
         wechats: Array.isArray(databaseSave.wechats) ? databaseSave.wechats : [],
+        wrongBook: databaseSave.wrongBook && typeof databaseSave.wrongBook === 'object' ? databaseSave.wrongBook : {},
       } as CitySave;
     }
 
@@ -4474,6 +4487,7 @@ export class YinXuCity extends Component {
       // stay dark in the codex until the player actually excavates them.
       unlockedOracleIds: ['rain', 'sun', 'field'],
       mastery: {},
+      wrongBook: {},
       ownedProductIds: ['shell-clay'],
       equippedShellId: 'shell-clay',
       placedDecorationIds: [],
@@ -4497,6 +4511,7 @@ export class YinXuCity extends Component {
         experience: Math.max(0, Number(parsed.experience ?? defaults.experience)),
         unlockedOracleIds: Array.isArray(parsed.unlockedOracleIds) ? parsed.unlockedOracleIds : defaults.unlockedOracleIds,
         mastery: parsed.mastery && typeof parsed.mastery === 'object' ? parsed.mastery : {},
+        wrongBook: parsed.wrongBook && typeof parsed.wrongBook === 'object' ? parsed.wrongBook : {},
         ownedProductIds: Array.from(new Set(['shell-clay', ...(Array.isArray(parsed.ownedProductIds) ? parsed.ownedProductIds : [])])),
         placedDecorationIds: Array.isArray(parsed.placedDecorationIds) ? parsed.placedDecorationIds : [],
         playerName: typeof parsed.playerName === 'string' && parsed.playerName.trim().length > 0 ? parsed.playerName.trim() : defaults.playerName,
@@ -4781,6 +4796,11 @@ export class YinXuCity extends Component {
   }
 
   private spawnNextSupplicant() {
+    const unlockedCount = this.save.unlockedOracleIds.filter(id => this.oracleCards.some(card => card.id === id)).length;
+    if (unlockedCount < 3) {
+      if (this.divinationText?.isValid) this.divinationText.string = '请先收集至少三枚甲骨文字，再开始三选一占卜。';
+      return;
+    }
     const available = this.divinationQuestions.filter(question => this.save.unlockedOracleIds.includes(question.answerId));
     if (available.length === 0) {
       if (this.divinationText?.isValid) this.divinationText.string = '背包中还没有能够回应村民问题的甲骨，请先去野外学习。';
@@ -4907,7 +4927,18 @@ export class YinXuCity extends Component {
     this.divinationActiveCard = null;
 
     this.createUiLabel(layer, 'SelectionInstruction', '拖动一枚甲骨到右侧完整龟腹甲上', -160, 284, 650, 42, 20, new Color(255, 230, 168));
-    const cards = this.oracleCards.filter(card => this.save.unlockedOracleIds.includes(card.id)).slice(0, 3);
+    const answer = this.oracleCards.find(card => card.id === this.currentQuestion?.answerId);
+    const wrongCandidates = this.oracleCards.filter(card => card.id !== answer?.id && this.save.unlockedOracleIds.includes(card.id));
+    if (!answer || wrongCandidates.length < 2) {
+      if (this.divinationText?.isValid) this.divinationText.string = '甲骨数量不足，暂时无法组成三张不同的候选甲骨。';
+      this.divinationStage = 'waiting';
+      return;
+    }
+    const wrongCards = wrongCandidates
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 2);
+    const cards = [answer, ...wrongCards].sort(() => Math.random() - 0.5);
+    this.currentDivinationCards = cards;
     const positions = [-390, -195, 0];
     cards.forEach((card, index) => {
       const home = new Vec2(positions[index] ?? -390 + index * 195, 92);
@@ -4998,7 +5029,7 @@ export class YinXuCity extends Component {
     const home = this.oracleCardHome[cardIndex];
     if (!node?.isValid || !home || !this.currentQuestion) return;
     const droppedOnShell = Math.abs(node.position.x - 360) <= 125 && Math.abs(node.position.y - 90) <= 145;
-    const card = this.oracleCards.filter(item => this.save.unlockedOracleIds.includes(item.id)).slice(0, 3)[cardIndex];
+    const card = this.currentDivinationCards[cardIndex];
     if (!droppedOnShell || !card) {
       node.setPosition(home.x, home.y, node.position.z);
       node.setScale(1, 1, 1);
@@ -5147,6 +5178,7 @@ export class YinXuCity extends Component {
     this.overlayRoot.getChildByName('OracleSelectionLayer')?.destroy();
     this.oracleCardNodes = [];
     this.oracleCardHome = [];
+    this.currentDivinationCards = [];
     const card = this.oracleCards.find(item => item.id === this.currentQuestion?.answerId);
     if (!card) return;
     const review = new Node('DivinationReviewPanel');
@@ -5187,6 +5219,7 @@ export class YinXuCity extends Component {
     }
     this.supplicantLeaving = true;
     this.currentQuestion = null;
+    this.currentDivinationCards = [];
     this.divinationStage = 'waiting';
     this.queueTimer = this.save.ink >= this.divinationInkCost ? 1.15 : 9999;
     this.updateRiseButtonState();

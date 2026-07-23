@@ -19,6 +19,7 @@ import {
   UITransform,
   view,
 } from 'cc';
+import { poemChallengeBank, type PoemChallengeDefinition } from './data/PoemChallengeBank';
 
 const { ccclass } = _decorator;
 
@@ -51,13 +52,16 @@ export type HallCard = {
   unlocked: boolean;
 };
 
-type HallMode = 'home' | 'codex' | 'review' | 'reviewResult' | 'progress' | 'parent' | 'parentCenter' | 'bindWechatDialog' | 'unbindWechatDialog' | 'settings' | 'ranks' | 'avatarCrop';
+type HallMode = 'home' | 'codex' | 'review' | 'reviewResult' | 'poem' | 'poemResult' | 'progress' | 'parent' | 'parentCenter' | 'bindWechatDialog' | 'unbindWechatDialog' | 'settings' | 'ranks' | 'avatarCrop';
+type HallWrongBookEntry = { cardId: string; wrongCount: number; lastWrongAt: number };
 type HallCallbacks = {
   getCards: () => HallCard[];
   /** All catalog entries count toward progress, while getCards may hide undiscovered entries. */
   getCatalogProgress?: () => { collected: number; total: number };
   getProgress: () => { ink: number; coins: number; experience: number; attempts: number; correct: number };
   recordReview: (cardId: string, correct: boolean) => void;
+  getWrongBook: () => HallWrongBookEntry[];
+  clearWrongBook: (cardId: string) => void;
   enterYinXu: () => void;
   getProfile: () => { playerName: string; avatarId: string; avatarUrl?: string; musicOn: boolean; sfxOn: boolean; nightMode: boolean; wechats: { nickname: string; avatarUrl?: string }[] };
   setName: (name: string) => void;
@@ -86,6 +90,13 @@ export class LearningHall extends Component {
   private reviewCorrect = 0;
   private reviewMistakes: HallCard[] = [];
   private reviewLibraryOpen = false;
+  private reviewSource: 'normal' | 'wrongBook' = 'normal';
+  private selectedWrongBookId: string | null = null;
+  private poemQuestions: Array<{ definition: PoemChallengeDefinition; card: HallCard }> = [];
+  private poemOptions: HallCard[] = [];
+  private poemIndex = 0;
+  private poemCorrect = 0;
+  private poemLastCorrect = false;
   private nameDialogOpen = false;
   private pendingUnbindIndex = -1;
   private hiddenGameNodes: Node[] = [];
@@ -301,6 +312,8 @@ export class LearningHall extends Component {
     else if (mode === 'codex') this.renderCodex(selectedId);
     else if (mode === 'review') this.renderReview();
     else if (mode === 'reviewResult') this.renderReviewResult();
+    else if (mode === 'poem') this.renderPoemChallenge();
+    else if (mode === 'poemResult') this.renderPoemResult();
     else if (mode === 'progress') this.renderProgress();
     else if (mode === 'ranks') this.renderRanks();
     else if (mode === 'parentCenter') this.drawParentCenter();
@@ -319,6 +332,7 @@ export class LearningHall extends Component {
     this.drawEnterYinXu(root, -16, -6, t);
     this.drawReviewSuggestion(root, 424, 55, t);
     this.drawCodexEntry(root, total, collected, 424, -140, t);
+    this.drawPoemEntry(root, -330, -192, t);
     this.drawBottomNav(root, 'home', t);
   }
 
@@ -548,6 +562,16 @@ export class LearningHall extends Component {
     this.label(root, 'HallCodexEntryPct', `${Math.round(pct * 100)}%`, x + w / 2 - 18, bottomY, 50, 18, 12, t.goldSub, 'right', 6);
   }
 
+  private drawPoemEntry(root: Node, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
+    const w = 250, h = 104;
+    const panel = this.graphics(root, 'HallPoemEntry', x, y, w, h, 3);
+    panel.fillColor = t.card; panel.roundRect(-w / 2, -h / 2, w, h, 12); panel.fill();
+    panel.strokeColor = new Color(214, 168, 86); panel.lineWidth = 2; panel.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 11); panel.stroke();
+    this.label(root, 'HallPoemEntryTitle', '诗词闯关', x - 38, y + 18, 135, 28, 19, new Color(255, 240, 194), 'center', 6);
+    this.label(root, 'HallPoemEntryHint', '填诗句 · 选甲骨', x - 38, y - 12, 135, 22, 13, new Color(216, 200, 168), 'center', 6);
+    this.button(root, 'HallPoemEntryButton', '开始 ›', x + 78, y, 76, 34, true);
+  }
+
   private drawBottomNav(root: Node, mode: HallMode, t: ReturnType<LearningHall['theme']>) {
     const items: Array<[HallMode, string, string, boolean]> = [
       ['home', '🏠', '大厅', mode === 'home'],
@@ -674,8 +698,20 @@ export class LearningHall extends Component {
       this.openReviewLibrary();
       return;
     }
+    this.reviewSource = 'normal';
     this.reviewLibraryOpen = false;
     this.reviewQuestions = Array.from({ length: 5 }, () => unlocked[Math.floor(Math.random() * unlocked.length)]);
+    this.reviewIndex = 0; this.reviewCorrect = 0; this.reviewMistakes = [];
+    this.render('review');
+  }
+
+  private beginWrongBookReview() {
+    const wrongIds = this.callbacks?.getWrongBook().map(entry => entry.cardId) ?? [];
+    const wrongCards = wrongIds.map(id => this.cards().find(card => card.id === id)).filter((card): card is HallCard => !!card && card.unlocked);
+    if (wrongCards.length === 0) { this.render('parent'); return; }
+    this.reviewSource = 'wrongBook';
+    this.reviewLibraryOpen = false;
+    this.reviewQuestions = this.shuffle(wrongCards).slice(0, Math.min(5, wrongCards.length));
     this.reviewIndex = 0; this.reviewCorrect = 0; this.reviewMistakes = [];
     this.render('review');
   }
@@ -710,7 +746,8 @@ export class LearningHall extends Component {
     if (!question) { this.render('reviewResult'); return; }
     const root = this.createRoot('HallReview', 'review');
     const t = this.theme();
-    this.drawHeader(root, '复习所学', `第 ${this.reviewIndex + 1} / 5 题 · 选择这个甲骨文对应的现代汉字`, true);
+    const reviewTitle = this.reviewSource === 'wrongBook' ? '错题复习' : '复习所学';
+    this.drawHeader(root, reviewTitle, `第 ${this.reviewIndex + 1} / ${this.reviewQuestions.length} 题 · 选择这个甲骨文对应的现代汉字`, true);
     this.panel(root, 'HallReviewGlyphPanel', -340, -20, 350, 430, t.card, false);
     this.label(root, 'HallReviewHint', '这个甲骨文字的意思是？', -340, 160, 280, 36, 20, t.goldInk);
     this.oracleGlyph(root, 'HallReviewGlyph', question, -340, 45, 155, 190, 5);
@@ -726,14 +763,14 @@ export class LearningHall extends Component {
   private renderReviewResult() {
     const root = this.createRoot('HallReviewResult', 'reviewResult');
     const t = this.theme();
-    this.drawHeader(root, '复习完成', '随机 5 题已完成', true);
+    this.drawHeader(root, this.reviewSource === 'wrongBook' ? '错题复习完成' : '复习完成', `${this.reviewQuestions.length} 题已完成`, true);
     this.panel(root, 'HallReviewResultPanel', 0, -5, 1000, 440, t.card, false);
     const scorePanel = this.graphics(root, 'HallReviewScorePanel', -290, 40, 330, 250, 4);
     scorePanel.fillColor = t.card; scorePanel.roundRect(-165, -125, 330, 250, 18); scorePanel.fill();
     scorePanel.strokeColor = t.cardStroke; scorePanel.lineWidth = 2; scorePanel.roundRect(-163, -123, 326, 246, 16); scorePanel.stroke();
     this.label(root, 'HallReviewScoreTitle', '本轮复习成绩', -290, 121, 250, 30, 18, t.goldInk);
-    this.label(root, 'HallReviewScore', `${this.reviewCorrect} / 5`, -290, 50, 270, 92, 62, t.goldInk);
-    this.label(root, 'HallReviewResultText', this.reviewCorrect === 5 ? '太棒了，全部答对！' : '记住易错字，下次会更棒。', -290, -35, 260, 46, 19, t.goldSub);
+    this.label(root, 'HallReviewScore', `${this.reviewCorrect} / ${this.reviewQuestions.length}`, -290, 50, 270, 92, 62, t.goldInk);
+    this.label(root, 'HallReviewResultText', this.reviewCorrect === this.reviewQuestions.length ? '太棒了，全部答对！' : '记住易错字，下次会更棒。', -290, -35, 260, 46, 19, t.goldSub);
     this.label(root, 'HallReviewMistakeTitle', this.reviewMistakes.length ? '本轮易错甲骨 · 下次优先复习' : '本轮没有易错字', 155, 130, 490, 34, 22, t.goldInk);
     if (this.reviewMistakes.length === 0) {
       this.label(root, 'HallReviewPerfect', '全部答对，已经掌握得很好了！', 155, 43, 470, 56, 24, t.goldSub);
@@ -773,15 +810,121 @@ export class LearningHall extends Component {
     });
   }
 
+  private renderWrongBook() {
+    const root = this.createRoot('HallWrongBook', 'parent');
+    const t = this.theme();
+    const entries = this.callbacks?.getWrongBook() ?? [];
+    const items = entries.map(entry => ({ entry, card: this.cards().find(card => card.id === entry.cardId) }))
+      .filter((item): item is { entry: HallWrongBookEntry; card: HallCard } => !!item.card);
+    this.selectedWrongBookId = this.selectedWrongBookId && items.some(item => item.card.id === this.selectedWrongBookId)
+      ? this.selectedWrongBookId : items[0]?.card.id ?? null;
+    const selected = items.find(item => item.card.id === this.selectedWrongBookId);
+    this.drawHeader(root, '错题本', `待巩固 ${items.length} 个甲骨文字`, true);
+    this.panel(root, 'HallWrongBookList', -215, -5, 630, 430, t.card, false);
+    if (items.length === 0) {
+      this.label(root, 'HallWrongBookEmpty', '暂无错题\n复习答错的字会自动收录到这里。', -215, 12, 480, 90, 24, t.goldInk, 'center', 6);
+    } else {
+      items.slice(0, 6).forEach((item, index) => {
+        const x = -415 + (index % 3) * 200; const y = 88 - Math.floor(index / 3) * 190;
+        const active = item.card.id === this.selectedWrongBookId;
+        const tile = this.graphics(root, `HallWrongBookCard-${index}`, x, y, 166, 154, 4);
+        tile.fillColor = active ? new Color(231, 209, 157, 248) : new Color(65, 51, 52, 245);
+        tile.roundRect(-83, -77, 166, 154, 12); tile.fill();
+        tile.strokeColor = active ? new Color(102, 183, 211) : t.cardStroke; tile.lineWidth = 2; tile.roundRect(-81, -75, 162, 150, 10); tile.stroke();
+        this.oracleGlyph(root, `HallWrongBookGlyph-${index}`, item.card, x, y + 18, 54, 68, 6);
+        this.label(root, `HallWrongBookModern-${index}`, item.card.modern, x, y - 39, 120, 22, 20, active ? new Color(78, 45, 28) : new Color(255, 240, 214), 'center', 6);
+        this.label(root, `HallWrongBookCount-${index}`, `答错 ${item.entry.wrongCount} 次`, x, y - 61, 125, 18, 12, active ? new Color(123, 68, 42) : t.goldSub, 'center', 6);
+      });
+      this.button(root, 'HallWrongBookReview', '开始错题复习', -215, -245, 220, 50, true);
+    }
+    this.panel(root, 'HallWrongBookDetail', 350, -5, 300, 430, new Color(223, 184, 113), true);
+    if (selected) {
+      this.oracleGlyph(root, 'HallWrongBookSelectedGlyph', selected.card, 350, 122, 88, 105, 5);
+      this.label(root, 'HallWrongBookSelectedTitle', `${selected.card.modern} · ${selected.card.pinyin}`, 350, 35, 250, 34, 24, new Color(85, 47, 30), 'center', 6);
+      this.label(root, 'HallWrongBookSelectedMeaning', selected.card.meaning, 350, -58, 250, 126, 14, new Color(92, 56, 35), 'left', 6);
+      this.button(root, 'HallWrongBookClear', '标记已掌握', 350, -210, 190, 44, false);
+    }
+  }
+
+  private beginPoemChallenge() {
+    const unlocked = this.cards().filter(card => card.unlocked);
+    const available = poemChallengeBank.map(definition => ({ definition, card: unlocked.find(card => card.modern === definition.answer) }))
+      .filter((item): item is { definition: PoemChallengeDefinition; card: HallCard } => !!item.card);
+    this.poemQuestions = this.shuffle(available).slice(0, Math.min(5, available.length));
+    this.poemIndex = 0; this.poemCorrect = 0; this.poemLastCorrect = false;
+    this.render('poem');
+  }
+
+  private renderPoemChallenge() {
+    const root = this.createRoot('HallPoemChallenge', 'poem');
+    const t = this.theme(); const question = this.poemQuestions[this.poemIndex];
+    this.drawHeader(root, '诗词闯关', question ? `第 ${this.poemIndex + 1} / ${this.poemQuestions.length} 关 · 选择甲骨字填空` : '先收集甲骨文字，再开始诗词闯关', true);
+    this.panel(root, 'HallPoemPanel', 0, -5, 1020, 450, t.card, false);
+    if (!question || this.cards().filter(card => card.unlocked).length < 4) {
+      this.label(root, 'HallPoemLocked', '需要至少收集 4 个甲骨文字，\n才能组成一题四张不同的候选字卡。', 0, 25, 700, 90, 26, t.goldInk, 'center', 6);
+      this.button(root, 'HallPoemGoCity', '进入殷墟探索', 0, -110, 220, 56, true);
+      return;
+    }
+    const wrong = this.cards().filter(card => card.unlocked && card.id !== question.card.id);
+    this.poemOptions = this.shuffle([question.card, ...this.shuffle(wrong).slice(0, 3)]);
+    this.label(root, 'HallPoemLine', question.definition.poem, 0, 132, 880, 70, 31, t.goldInk, 'center', 6);
+    this.label(root, 'HallPoemHint', '请选择一张甲骨字卡填入【】', 0, 82, 600, 28, 17, t.goldSub, 'center', 6);
+    const positions: Array<[number, number]> = [[-345, -52], [-115, -52], [115, -52], [345, -52]];
+    this.poemOptions.forEach((card, index) => {
+      const [x, y] = positions[index];
+      const option = this.graphics(root, `HallPoemOption-${index}`, x, y, 190, 208, 4);
+      option.fillColor = new Color(231, 209, 157, 248); option.roundRect(-95, -104, 190, 208, 14); option.fill();
+      option.strokeColor = this.qualityColor(card.quality); option.lineWidth = 3; option.roundRect(-93, -102, 186, 204, 12); option.stroke();
+      this.oracleGlyph(root, `HallPoemGlyph-${index}`, card, x, y + 27, 92, 112, 6);
+      this.label(root, `HallPoemSelect-${index}`, `${String.fromCharCode(65 + index)} · 选此甲骨`, x, y - 76, 150, 24, 14, new Color(93, 56, 34), 'center', 6);
+    });
+  }
+
+  private answerPoemChallenge(index: number) {
+    const question = this.poemQuestions[this.poemIndex]; const selected = this.poemOptions[index];
+    if (!question || !selected) return;
+    this.poemLastCorrect = selected.id === question.card.id;
+    this.callbacks?.recordReview(question.card.id, this.poemLastCorrect);
+    if (this.poemLastCorrect) this.poemCorrect++;
+    this.render('poemResult');
+  }
+
+  private renderPoemResult() {
+    const root = this.createRoot('HallPoemResult', 'poemResult');
+    const t = this.theme(); const question = this.poemQuestions[this.poemIndex];
+    if (!question) { this.render('home'); return; }
+    const filled = question.definition.poem.replace('【】', `【${question.card.modern}】`);
+    this.drawHeader(root, this.poemLastCorrect ? '闯关成功' : '本关待巩固', this.poemLastCorrect ? '甲骨字与诗句语义相符' : '已记录到错题本，请记住正确甲骨字', true);
+    this.panel(root, 'HallPoemResultPanel', 0, -8, 1010, 455, t.card, false);
+    this.label(root, 'HallPoemResultLine', filled, 0, 148, 860, 66, 29, t.goldInk, 'center', 6);
+    this.oracleGlyph(root, 'HallPoemResultGlyph', question.card, -355, 12, 110, 135, 6);
+    this.label(root, 'HallPoemResultChar', `${question.card.modern} · ${question.card.pinyin}`, -355, -100, 210, 28, 21, t.goldInk, 'center', 6);
+    this.label(root, 'HallPoemResultMeaning', `甲骨字义：${question.card.meaning}`, -355, -166, 230, 95, 14, t.goldSub, 'left', 6);
+    this.panel(root, 'HallPoemResultInfo', 180, -12, 540, 280, new Color(223, 184, 113), true);
+    this.label(root, 'HallPoemResultSource', `出处：${question.definition.work}\n作者：${question.definition.author}`, 180, 80, 470, 60, 19, new Color(85, 47, 30), 'left', 6);
+    this.label(root, 'HallPoemResultEmotionTitle', '思想感情', 180, 18, 470, 28, 20, new Color(85, 47, 30), 'left', 6);
+    this.label(root, 'HallPoemResultEmotion', question.definition.emotion, 180, -58, 470, 105, 17, new Color(92, 56, 35), 'left', 6);
+    const last = this.poemIndex >= this.poemQuestions.length - 1;
+    this.button(root, 'HallPoemNext', last ? '完成闯关' : '下一关', 310, -202, 180, 50, true);
+    this.label(root, 'HallPoemScore', `本轮答对 ${this.poemCorrect} / ${this.poemIndex + 1}`, -150, -202, 260, 28, 17, t.goldInk, 'center', 6);
+  }
+
+  private nextPoemChallenge() {
+    if (this.poemIndex < this.poemQuestions.length - 1) { this.poemIndex++; this.render('poem'); }
+    else this.render('home');
+  }
+
   private renderPlaceholder(mode: 'parent' | 'settings') {
     if (mode === 'settings') { this.drawSettingsPanel(); return; }
-    // 错题本 = 家长端功能，后续单独开放，当前显示「功能未完善」
-    const root = this.createRoot('HallWrongBook', mode);
-    const t = this.theme();
-    this.drawHeader(root, '错题本', '', true);
-    this.panel(root, 'HallWrongBookPanel', 0, -20, 760, 320, t.card, false);
-    this.label(root, 'HallWrongBookIcon', '⭐', 0, 78, 96, 96, 52, t.goldInk, 'center', 6);
-    this.label(root, 'HallWrongBookTip', '功能未完善', 0, -8, 420, 56, 30, t.goldInk, 'center', 6);
+    this.renderWrongBook();
+  }
+
+  private drawWechatButton(root: Node, name: string, x: number, y: number, w: number, h: number, text: string) {
+    const node = this.graphics(root, name, x, y, w, h, 6);
+    node.fillColor = new Color(7, 193, 96, 255); node.roundRect(-w / 2, -h / 2, w, h, 12); node.fill();
+    node.strokeColor = new Color(6, 165, 82, 255); node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 11); node.stroke();
+    this.label(root, `${name}Icon`, '💬', x - w / 2 + 24, y, 28, 28, 18, new Color(255, 255, 255), 'center', 7);
+    this.label(root, `${name}Txt`, text, x + 10, y, w - 52, 28, 18, new Color(255, 255, 255), 'center', 7);
   }
 
   private drawParentCenter() {
@@ -1285,6 +1428,7 @@ export class LearningHall extends Component {
       else if (this.hit(x, y, -442, -6, 180, 245)) { this.playSfx('tap'); this.render('ranks'); }
       else if (this.hit(x, y, 540, 109, 86, 30)) { this.playSfx('tap'); this.openReviewLibrary(); }
       else if (this.hit(x, y, 424, -140, 340, 112)) { this.playSfx('tap'); this.render('codex'); }
+      else if (this.hit(x, y, -330, -192, 250, 104)) { this.playSfx('confirm'); this.beginPoemChallenge(); }
       else if (this.hit(x, y, 540, 320, 74, 30)) { this.playSfx('tap'); this.render('parentCenter'); }
       else if (this.hit(x, y, -216, -281, 60, 60)) { this.playSfx('back'); this.render('home'); }
       else if (this.hit(x, y, -130, -281, 60, 60)) { this.playSfx('tap'); this.openReviewLibrary(); }
@@ -1382,6 +1526,23 @@ export class LearningHall extends Component {
         const cardX = -430 + (index % 4) * 160; const cardY = 105 - Math.floor(index / 4) * 200;
         if (card.unlocked && this.hit(x, y, cardX, cardY, 138, 168)) { this.playSfx('tap'); this.render('codex', card.id); }
       });
+    } else if (this.mode === 'parent') {
+      const entries = this.callbacks?.getWrongBook() ?? [];
+      const items = entries.map(entry => ({ entry, card: this.cards().find(card => card.id === entry.cardId) })).filter((item): item is { entry: HallWrongBookEntry; card: HallCard } => !!item.card);
+      items.slice(0, 6).forEach((item, index) => {
+        const cardX = -415 + (index % 3) * 200; const cardY = 88 - Math.floor(index / 3) * 190;
+        if (this.hit(x, y, cardX, cardY, 166, 154)) { this.playSfx('tap'); this.selectedWrongBookId = item.card.id; this.render('parent'); }
+      });
+      if (items.length > 0 && this.hit(x, y, -215, -245, 220, 50)) { this.playSfx('confirm'); this.beginWrongBookReview(); }
+      else if (this.selectedWrongBookId && this.hit(x, y, 350, -210, 190, 44)) { this.playSfx('tap'); this.callbacks?.clearWrongBook(this.selectedWrongBookId); this.selectedWrongBookId = null; this.render('parent'); }
+    } else if (this.mode === 'poem') {
+      if (this.poemQuestions.length === 0 && this.hit(x, y, 0, -110, 220, 56)) { this.playSfx('confirm'); this.callbacks?.enterYinXu(); this.close(); return; }
+      const positions: Array<[number, number]> = [[-345, -52], [-115, -52], [115, -52], [345, -52]];
+      positions.forEach(([optionX, optionY], index) => {
+        if (this.hit(x, y, optionX, optionY, 190, 208)) { this.playSfx('tap'); this.answerPoemChallenge(index); }
+      });
+    } else if (this.mode === 'poemResult') {
+      if (this.hit(x, y, 310, -202, 180, 50)) { this.playSfx('confirm'); this.nextPoemChallenge(); }
     } else if (this.mode === 'review') {
       if (this.reviewLibraryOpen) {
         if (this.cards().filter(card => card.unlocked).length === 0 && this.hit(x, y, 0, -110, 220, 58)) { this.playSfx('confirm'); this.callbacks?.enterYinXu(); this.close(); }
@@ -1402,7 +1563,7 @@ export class LearningHall extends Component {
         this.render('review');
       });
     } else if (this.mode === 'reviewResult') {
-      if (this.hit(x, y, -130, -125, 210, 58)) { this.playSfx('confirm'); this.beginReview(); }
+      if (this.hit(x, y, -130, -125, 210, 58)) { this.playSfx('confirm'); this.reviewSource === 'wrongBook' ? this.beginWrongBookReview() : this.beginReview(); }
       else if (this.hit(x, y, 130, -125, 210, 58)) { this.playSfx('tap'); this.render('codex'); }
     }
   }
