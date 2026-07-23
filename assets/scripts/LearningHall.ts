@@ -330,12 +330,12 @@ export class LearningHall extends Component {
     const night = this.callbacks?.getProfile().nightMode ?? false;
     return {
       night,
-      ink: night ? new Color(255, 233, 200) : new Color(255, 245, 220),     // day = pale cream on dark cards
-      sub: night ? new Color(230, 216, 188) : new Color(230, 216, 188),     // #e6d8bc
+      ink: night ? new Color(255, 233, 200) : new Color(255, 245, 220),     // 卡片内浅金字：夜=暖金、昼=奶白
+      sub: new Color(230, 216, 188),                                         // #e6d8bc 昼夜同值
       card: night ? new Color(40, 34, 58, 205) : new Color(60, 45, 32, 210), // 白天加深为深暖棕半透明
       cardStroke: night ? new Color(231, 187, 97, 200) : new Color(226, 190, 110, 130), // 白天描边更明显
-      goldInk: night ? new Color(255, 230, 189) : new Color(255, 230, 189), // #ffe6bd in-card text
-      goldSub: night ? new Color(230, 216, 188) : new Color(230, 216, 188), // #e6d8bc
+      goldInk: new Color(255, 230, 189),                                     // #ffe6bd in-card text 昼夜同值
+      goldSub: new Color(230, 216, 188),                                     // #e6d8bc 昼夜同值
     };
   }
 
@@ -585,14 +585,12 @@ export class LearningHall extends Component {
     const root = this.createRoot('HallRanks', 'ranks');
     const rankIdx = this.currentRank();
     const t = this.theme();
-    const mask = this.graphics(root, 'HallRanksMask', 0, 0, 1180, 680, 1);
-    mask.fillColor = new Color(12, 8, 3, 128); mask.rect(-590, -340, 1180, 680); mask.fill();
-    const pw = 480, ph = 560;
-    const panel = this.graphics(root, 'HallRanksPanel', 0, 0, pw, ph, 3);
-    panel.fillColor = t.night ? new Color(24, 18, 12, 235) : new Color(255, 248, 228, 235);
-    panel.roundRect(-pw / 2, -ph / 2, pw, ph, 22); panel.fill();
-    panel.strokeColor = t.night ? new Color(255, 210, 140, 120) : new Color(255, 210, 140, 160);
-    panel.lineWidth = 3; panel.roundRect(-pw / 2 + 1, -ph / 2 + 1, pw - 2, ph - 2, 21); panel.stroke();
+    this.drawModal(root, {
+      mask: new Color(12, 8, 3, 128), maskW: 1180, maskH: 680,
+      w: 480, h: 560,
+      fill: t.night ? new Color(24, 18, 12, 235) : new Color(255, 248, 228, 235),
+      corner: 22, stroke: t.night ? new Color(255, 210, 140, 120) : new Color(255, 210, 140, 160), strokeW: 3, innerCorner: 21, innerInset: 1,
+    });
     this.label(root, 'HallRanksTitle', '殷墟卜官 · 五阶段位', 0, 250, 420, 36, 18, t.night ? new Color(255, 233, 176) : new Color(90, 58, 26), 'center', 6);
     const titleLine = this.graphics(root, 'HallRanksTitleLine', 0, 226, 54, 2, 6);
     titleLine.fillColor = new Color(154, 106, 48, 255); titleLine.roundRect(-27, -1, 54, 2, 1); titleLine.fill();
@@ -793,13 +791,12 @@ export class LearningHall extends Component {
     const wechats = profile.wechats || [];
 
     // 遮罩 + 居中面板（沿用设置面板风格：半透明主题卡片色）
-    const mask = this.graphics(root, 'HallPCMask', 0, 0, 1280, 720, 1);
-    mask.fillColor = new Color(40, 28, 12, 180); mask.rect(-640, -360, 1280, 720); mask.fill();
-    const pw = 560, ph = 460;
-    const panel = this.graphics(root, 'HallPCPanel', 0, 0, pw, ph, 3);
-    panel.fillColor = t.night ? new Color(40, 34, 58, 190) : new Color(60, 45, 32, 195);
-    panel.roundRect(-pw / 2, -ph / 2, pw, ph, 22); panel.fill();
-    panel.strokeColor = t.cardStroke; panel.lineWidth = 4; panel.roundRect(-pw / 2 + 2, -ph / 2 + 2, pw - 4, ph - 4, 19); panel.stroke();
+    this.drawModal(root, {
+      mask: new Color(40, 28, 12, 180),
+      w: 560, h: 460,
+      fill: t.night ? new Color(40, 34, 58, 190) : new Color(60, 45, 32, 195),
+      corner: 22, strokeW: 4, innerCorner: 19,
+    });
 
     // 标题 + 关闭
     this.label(root, 'HallPCTitle', '家长中心', -158, 200, 200, 32, 20, t.ink, 'left', 6);
@@ -847,13 +844,13 @@ export class LearningHall extends Component {
     const root = this.createRoot('HallBindWechatDialog', 'bindWechatDialog');
     const t = this.theme();
     const dw = 420, dh = 220;
-    // 遮罩
-    const mask = this.graphics(root, 'HallBindWxMask', 0, 0, 1280, 720, 1);
-    mask.fillColor = new Color(0, 0, 0, 160); mask.rect(-640, -360, 1280, 720); mask.fill();
-    // 面板
-    const panel = this.graphics(root, 'HallBindWxPanel', 0, 0, dw, dh, 21);
-    panel.fillColor = t.night ? new Color(40, 34, 58, 190) : new Color(60, 45, 32, 195); panel.roundRect(-dw / 2, -dh / 2, dw, dh, 18); panel.fill();
-    panel.strokeColor = t.cardStroke; panel.lineWidth = 3; panel.roundRect(-dw / 2 + 2, -dh / 2 + 2, dw - 4, dh - 4, 15); panel.stroke();
+    // 遮罩 + 面板
+    this.drawModal(root, {
+      mask: new Color(0, 0, 0, 160),
+      w: dw, h: dh,
+      fill: t.night ? new Color(40, 34, 58, 190) : new Color(60, 45, 32, 195),
+      corner: 18, strokeW: 3, innerCorner: 15,
+    });
     // 标题
     this.label(root, 'HallBindWxTitle', '绑定微信', 0, 78, 300, 32, 18, t.ink, 'center', 22);
     // 说明
@@ -869,13 +866,13 @@ export class LearningHall extends Component {
     const root = this.createRoot('HallUnbindWechatDialog', 'unbindWechatDialog');
     const t = this.theme();
     const dw = 420, dh = 220;
-    // 遮罩
-    const mask = this.graphics(root, 'HallUnbindWxMask', 0, 0, 1280, 720, 1);
-    mask.fillColor = new Color(0, 0, 0, 160); mask.rect(-640, -360, 1280, 720); mask.fill();
-    // 面板
-    const panel = this.graphics(root, 'HallUnbindWxPanel', 0, 0, dw, dh, 21);
-    panel.fillColor = t.night ? new Color(40, 34, 58, 190) : new Color(60, 45, 32, 195); panel.roundRect(-dw / 2, -dh / 2, dw, dh, 18); panel.fill();
-    panel.strokeColor = t.cardStroke; panel.lineWidth = 3; panel.roundRect(-dw / 2 + 2, -dh / 2 + 2, dw - 4, dh - 4, 15); panel.stroke();
+    // 遮罩 + 面板
+    this.drawModal(root, {
+      mask: new Color(0, 0, 0, 160),
+      w: dw, h: dh,
+      fill: t.night ? new Color(40, 34, 58, 190) : new Color(60, 45, 32, 195),
+      corner: 18, strokeW: 3, innerCorner: 15,
+    });
     // 标题
     this.label(root, 'HallUnbindWxTitle', '解绑微信', 0, 78, 300, 32, 18, t.ink, 'center', 22);
     // 说明
@@ -887,18 +884,38 @@ export class LearningHall extends Component {
     this.button(root, 'HallUnbindWxConfirm', '确认解绑', 100, -62, 140, 40, true, 22);
   }
 
+  /** 通用弹窗骨架：遮罩 + 居中圆角面板。所有弹窗共用，颜色/尺寸/圆角由调用处
+   *  原样传入，确保视觉与之前完全一致，仅消除重复的样板绘制代码。 */
+  private drawModal(root: Node, o: {
+    mask?: Color; maskZ?: number; maskW?: number; maskH?: number;
+    w: number; h: number; fill: Color;
+    corner?: number; stroke?: Color; strokeW?: number; innerCorner?: number; innerInset?: number; panelZ?: number;
+  }): Node {
+    if (o.mask) {
+      const mw = o.maskW ?? 1280, mh = o.maskH ?? 720;
+      const mask = this.graphics(root, 'HallModalMask', 0, 0, mw, mh, o.maskZ ?? 1);
+      mask.fillColor = o.mask; mask.rect(-mw / 2, -mh / 2, mw, mh); mask.fill();
+    }
+    const corner = o.corner ?? 18;
+    const inset = o.innerInset ?? 2;
+    const panel = this.graphics(root, 'HallModalPanel', 0, 0, o.w, o.h, o.panelZ ?? 3);
+    panel.fillColor = o.fill; panel.roundRect(-o.w / 2, -o.h / 2, o.w, o.h, corner); panel.fill();
+    panel.strokeColor = o.stroke ?? this.theme().cardStroke;
+    panel.lineWidth = o.strokeW ?? 3;
+    panel.roundRect(-o.w / 2 + inset, -o.h / 2 + inset, o.w - inset * 2, o.h - inset * 2, o.innerCorner ?? corner - 3); panel.stroke();
+    return panel;
+  }
+
   private drawSettingsPanel() {
     const root = this.createRoot('HallSettings', 'settings');
     const profile = this.callbacks!.getProfile();
     const t = this.theme();
-    const mask = this.graphics(root, 'HallSettingsMask', 0, 0, 1280, 720, 1);
-    mask.fillColor = new Color(40, 28, 12, 180); mask.rect(-640, -360, 1280, 720); mask.fill();
-    const pw = 560, ph = 620;
-    const panel = this.graphics(root, 'HallSettingsPanel', 0, 0, pw, ph, 3);
-    // 大外框跟随界面卡片配色：夜间深蓝紫半透明、白天深暖棕半透明，比卡片略透
-    panel.fillColor = t.night ? new Color(40, 34, 58, 190) : new Color(60, 45, 32, 195);
-    panel.roundRect(-pw / 2, -ph / 2, pw, ph, 22); panel.fill();
-    panel.strokeColor = t.cardStroke; panel.lineWidth = 4; panel.roundRect(-pw / 2 + 2, -ph / 2 + 2, pw - 4, ph - 4, 19); panel.stroke();
+    this.drawModal(root, {
+      mask: new Color(40, 28, 12, 180),
+      w: 560, h: 620,
+      fill: t.night ? new Color(40, 34, 58, 190) : new Color(60, 45, 32, 195),
+      corner: 22, strokeW: 4, innerCorner: 19,
+    });
     // 标题 + 关闭（对齐 HTML .set-top）
     this.label(root, 'HallSettingsTitle', '设置', -158, 288, 200, 32, 20, t.ink, 'left', 6);
     const close = this.graphics(root, 'HallSetClose', 252, 288, 30, 30, 6);
@@ -1174,13 +1191,13 @@ export class LearningHall extends Component {
   /** 昵称编辑弹窗：输入框 + 取消/保存 */
   private drawNameDialog(root: Node, currentName: string, t: ReturnType<LearningHall['theme']>) {
     const dw = 420, dh = 200;
-    // 半透明遮罩（拦截点击）
-    const mask = this.graphics(root, 'HallNameDialogMask', 0, 0, 1280, 720, 20);
-    mask.fillColor = new Color(0, 0, 0, 160); mask.rect(-640, -360, 1280, 720); mask.fill();
-    // 面板
-    const panel = this.graphics(root, 'HallNameDialogPanel', 0, 0, dw, dh, 21);
-    panel.fillColor = t.night ? new Color(30, 24, 18, 245) : new Color(255, 248, 228, 245); panel.roundRect(-dw / 2, -dh / 2, dw, dh, 18); panel.fill();
-    panel.strokeColor = t.cardStroke; panel.lineWidth = 3; panel.roundRect(-dw / 2 + 2, -dh / 2 + 2, dw - 4, dh - 4, 15); panel.stroke();
+    // 半透明遮罩（拦截点击，高 z 盖在设置面板之上）+ 面板
+    this.drawModal(root, {
+      mask: new Color(0, 0, 0, 160), maskZ: 20,
+      w: dw, h: dh,
+      fill: t.night ? new Color(30, 24, 18, 245) : new Color(255, 248, 228, 245),
+      corner: 18, strokeW: 3, innerCorner: 15, panelZ: 21,
+    });
     this.label(root, 'HallNameDialogTitle', '修改昵称', 0, 68, 300, 32, 18, t.ink, 'center', 22);
     // 输入框背景
     const iw = 320, ih = 42, iy = 10;
