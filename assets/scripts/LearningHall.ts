@@ -16,7 +16,9 @@ import {
   SpriteFrame,
   EditBox,
   Texture2D,
+  tween,
   UITransform,
+  Vec3,
   view,
 } from 'cc';
 import { poemChallengeBank, type PoemChallengeDefinition } from './data/PoemChallengeBank';
@@ -379,10 +381,18 @@ export class LearningHall extends Component {
     const bar = this.graphics(root, 'HallYinXuLoadingBar', 0, barY, barW, barH, 5);
     bar.fillColor = new Color(33, 25, 34, 190); bar.roundRect(-barW / 2, -barH / 2, barW, barH, 9); bar.fill();
     bar.strokeColor = new Color(231, 187, 97, 220); bar.lineWidth = 2; bar.roundRect(-barW / 2, -barH / 2, barW, barH, 9); bar.stroke();
+    // The fill is a real tweened node: it continuously grows left-to-right for the whole transition.
     const fillW = barW - 8;
-    const fill = this.graphics(root, 'HallYinXuLoadingBarFill', 0, barY, fillW, barH - 8, 6);
-    fill.fillColor = new Color(221, 159, 67, 255); fill.roundRect(-fillW / 2, -(barH - 8) / 2, fillW, barH - 8, 5); fill.fill();
-    this.label(root, 'HallYinXuLoadingDuration', '3 秒后进入探索', 0, -205, 180, 26, 16, t.goldInk, 'center', 6);
+    const fillNode = new Node('HallYinXuLoadingBarFill');
+    fillNode.parent = root;
+    fillNode.setPosition(-barW / 2 + 4, barY, 6);
+    const fillTransform = fillNode.addComponent(UITransform);
+    fillTransform.setContentSize(fillW, barH - 8);
+    fillTransform.setAnchorPoint(0, 0.5);
+    const fill = fillNode.addComponent(Graphics);
+    fill.fillColor = new Color(221, 159, 67, 255); fill.roundRect(0, -(barH - 8) / 2, fillW, barH - 8, 5); fill.fill();
+    fillNode.setScale(0.01, 1, 1);
+    tween(fillNode).to(3.35, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' }).start();
   }
 
   /** Day/night-aware palette, mirrored from hall_full.html CSS.
