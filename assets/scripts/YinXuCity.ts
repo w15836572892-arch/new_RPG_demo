@@ -24,6 +24,8 @@ import {
   view,
 } from 'cc';
 import { HallCard, LearningHall } from './LearningHall';
+import { LocalSaveDatabase } from './storage/LocalSaveDatabase';
+import { importedOracleCards } from './data/ImportedOracleCatalog';
 
 const { ccclass } = _decorator;
 
@@ -102,6 +104,7 @@ type OracleCardData = {
   id: string; glyph: string; modern: string; pinyin: string; quality: OracleQuality;
   meaning: string; evolution: string; history: string;
   asset?: string; imageBounds?: readonly [number, number, number, number]; excavatable?: boolean;
+  catalogOnlyWhenUnlocked?: boolean;
 };
 type DivinationQuestion = { villager: string; prompt: string; answerId: string; portrait: 'farmer' | 'woman' };
 type ShopProduct = {
@@ -241,6 +244,7 @@ export class YinXuCity extends Component {
   private rainSplashes: RainSplash[] = [];
   private weatherRenderTimer = 0;
   private readonly saveKey = 'yinxu-city-save-v1';
+  private readonly localSaveDatabase = new LocalSaveDatabase('yinxu-city-local-db', 'saves');
   private readonly divinationInkCost = 4;
   private readonly oracleCards: OracleCardData[] = [
     {
@@ -472,6 +476,7 @@ export class YinXuCity extends Component {
       evolution: '早期字形完整保留鱼身、鱼鳍与尾部，随着书写简化，轮廓逐渐演变成现代“鱼”字。',
       history: '渔猎和水产资源是河畔生活的一部分，可与钓鱼玩法和水域生态联动学习。',
     },
+    ...importedOracleCards,
   ];
   private readonly divinationQuestions: DivinationQuestion[] = [
     { villager: '阿禾', prompt: '卜官大人，明日是否会有雨？田里的禾苗正等着水呢。', answerId: 'rain', portrait: 'farmer' },
@@ -578,7 +583,12 @@ export class YinXuCity extends Component {
   private learningHall!: LearningHall;
 
   onLoad() {
-    this.save = this.loadCitySave();
+    this.enabled = false;
+    void this.initializeGame();
+  }
+
+  private async initializeGame() {
+    this.save = await this.loadCitySave();
     this.buildWorld();
     input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
     input.on(Input.EventType.KEY_UP, this.onKeyUp, this);
@@ -588,13 +598,31 @@ export class YinXuCity extends Component {
     input.on(Input.EventType.TOUCH_CANCEL, this.onTouchEnd, this);
     this.learningHall = this.node.addComponent(LearningHall);
     this.learningHall.initialize({
-      getCards: () => this.oracleCards.filter(card => Boolean(card.asset) || card.id === 'water-temp').map(card => ({
-        id: card.id, glyph: card.glyph, modern: this.oracleModernCharacter(card), pinyin: card.pinyin,
-        quality: card.quality, meaning: card.meaning, evolution: card.evolution, history: card.history,
-        asset: card.asset ?? (card.id === 'water-temp' ? 'shui' : undefined),
-        imageBounds: card.imageBounds ?? (card.id === 'water-temp' ? [24, 50, 76, 127] : undefined),
-        unlocked: this.save.unlockedOracleIds.includes(card.id),
-      } satisfies HallCard)),
+      getCards: () => {
+        const discoveryOrder = this.save.unlockedOracleIds;
+        return this.oracleCards
+          .filter(card => (Boolean(card.asset) || card.id === 'water-temp')
+            && (!card.catalogOnlyWhenUnlocked || discoveryOrder.includes(card.id)))
+          .map(card => ({
+            id: card.id, glyph: card.glyph, modern: this.oracleModernCharacter(card), pinyin: card.pinyin,
+            quality: card.quality, meaning: card.meaning, evolution: card.evolution, history: card.history,
+            asset: card.asset ?? (card.id === 'water-temp' ? 'shui' : undefined),
+            imageBounds: card.imageBounds ?? (card.id === 'water-temp' ? [24, 50, 76, 127] : undefined),
+            unlocked: discoveryOrder.includes(card.id),
+          } satisfies HallCard))
+          .sort((a, b) => {
+            if (a.unlocked !== b.unlocked) return a.unlocked ? -1 : 1;
+            if (!a.unlocked) return 0;
+            return discoveryOrder.indexOf(b.id) - discoveryOrder.indexOf(a.id);
+          });
+      },
+      getCatalogProgress: () => {
+        const catalog = this.oracleCards.filter(card => Boolean(card.asset) || card.id === 'water-temp');
+        return {
+          total: catalog.length,
+          collected: catalog.filter(card => this.save.unlockedOracleIds.includes(card.id)).length,
+        };
+      },
       getProgress: () => ({
         ink: this.save.ink,
         coins: this.save.coins,
@@ -681,6 +709,7 @@ export class YinXuCity extends Component {
     if (sys.isBrowser && /(?:^|[?&])oracleQa=1(?:&|$)/.test(previewSearch)) {
       this.scheduleOnce(() => this.openOracleQaPreview(), .65);
     }
+    this.enabled = true;
   }
 
   onDestroy() {
@@ -2464,8 +2493,9 @@ export class YinXuCity extends Component {
       return { kind: 'ink', quality: null, cardId: null, amount: minimum + Math.floor(Math.random() * 4) };
     }
     const excavatableCards = this.oracleCards.filter(card => card.excavatable);
-    const pool = excavatableCards.filter(card => card.quality === quality);
-    const uncollected = pool.filter(card => !this.save.unlockedOracleIds.includes(card.id));
+    // Keep the existing regional chance of finding a word versus ink, but once
+    // a word is found every excavatable entry uses the same selection chance.
+    const uncollected = excavatableCards.filter(card => !this.save.unlockedOracleIds.includes(card.id));
     const reservedIds = new Set(this.excavationSites
       .filter(site => site.reward.kind === 'oracle' && !!site.reward.cardId)
       .map(site => site.reward.cardId as string));
@@ -2477,10 +2507,10 @@ export class YinXuCity extends Component {
     // has been completed. Duplicate frequency only rises late in collection.
     const duplicateChance = collectionRatio < .8 ? .05 : Math.min(.38, .05 + (collectionRatio - .8) * 1.65);
     const freshPool = uncollectedAndUnreserved.length > 0 ? uncollectedAndUnreserved : uncollected;
-    const candidatePool = freshPool.length > 0 && Math.random() >= duplicateChance ? freshPool : pool;
+    const candidatePool = freshPool.length > 0 && Math.random() >= duplicateChance ? freshPool : excavatableCards;
     const card = candidatePool[Math.floor(Math.random() * candidatePool.length)];
     return card
-      ? { kind: 'oracle', quality, cardId: card.id, amount: 0 }
+      ? { kind: 'oracle', quality: card.quality, cardId: card.id, amount: 0 }
       : { kind: 'ink', quality: null, cardId: null, amount: quality === 'gold' ? 10 : quality === 'red' ? 6 : 4 };
   }
 
@@ -4419,7 +4449,22 @@ export class YinXuCity extends Component {
     graphics.stroke();
   }
 
-  private loadCitySave(): CitySave {
+  private async loadCitySave(): Promise<CitySave> {
+    const databaseSave = await this.localSaveDatabase.get<Partial<CitySave>>(this.saveKey);
+    if (databaseSave) {
+      return {
+        ...databaseSave,
+        version: 2,
+        wechats: Array.isArray(databaseSave.wechats) ? databaseSave.wechats : [],
+      } as CitySave;
+    }
+
+    const legacySave = this.loadLegacyCitySave();
+    void this.localSaveDatabase.put(this.saveKey, legacySave);
+    return legacySave;
+  }
+
+  private loadLegacyCitySave(): CitySave {
     const defaults: CitySave = {
       version: 2,
       ink: 8,
@@ -4482,6 +4527,7 @@ export class YinXuCity extends Component {
   }
 
   private persistCitySave() {
+    void this.localSaveDatabase.put(this.saveKey, this.save);
     try {
       sys.localStorage.setItem(this.saveKey, JSON.stringify(this.save));
     } catch (error) {
@@ -5446,7 +5492,7 @@ export class YinXuCity extends Component {
     this.drawWoodPanel(root, 'ExcavationTeachingArchive', 170, -3, 720, 480, 2, true);
     const teachingText = `现代汉字：${this.oracleModernCharacter(card)}\n读音：${card.pinyin}\n\n一、字义与象形来源\n${card.meaning}\n\n二、字形演变与辨识要点\n${card.evolution}\n\n三、历史来源与商代生活\n${card.history}\n\n学习提示：再次在背包“图鉴”中点击该字，可以随时复习以上内容。`;
     this.createUiLabel(root, 'ExcavationTeachingText', teachingText,
-      170, -2, 650, 420, 18, new Color(74, 43, 29), 'left', 5);
+      170, -2, 660, 436, 16, new Color(74, 43, 29), 'left', 5);
     this.drawUiButton(root, 'ExcavationLearningCompleteButton', '完成学习', 430, -270, 220, 58, true);
   }
 
@@ -5839,6 +5885,13 @@ export class YinXuCity extends Component {
     else if (this.actionKind === 'shop') this.showShopConfirmation();
   }
 
+  private async resetLocalSave() {
+    await this.localSaveDatabase.remove(this.saveKey);
+    sys.localStorage.removeItem(this.saveKey);
+    this.save = await this.loadCitySave();
+    this.persistCitySave();
+  }
+
   private onKeyDown(e: EventKeyboard) {
     if (sys.isBrowser && e.keyCode === KeyCode.ESCAPE) {
       if (this.overlay === 'divination') this.exitDivination();
@@ -5850,9 +5903,7 @@ export class YinXuCity extends Component {
       return;
     }
     if (sys.isBrowser && e.keyCode === KeyCode.KEY_R && this.overlay === 'none') {
-      sys.localStorage.removeItem(this.saveKey);
-      this.save = this.loadCitySave();
-      this.persistCitySave();
+      void this.resetLocalSave();
       this.status.string = '预览存档已恢复到初始学习进度。';
       return;
     }
