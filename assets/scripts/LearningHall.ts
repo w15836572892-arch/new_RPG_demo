@@ -52,7 +52,7 @@ export type HallCard = {
   unlocked: boolean;
 };
 
-type HallMode = 'home' | 'codex' | 'review' | 'reviewResult' | 'poem' | 'poemResult' | 'progress' | 'parent' | 'parentCenter' | 'bindWechatDialog' | 'unbindWechatDialog' | 'settings' | 'ranks' | 'avatarCrop';
+type HallMode = 'home' | 'enteringYinXu' | 'codex' | 'review' | 'reviewResult' | 'poem' | 'poemResult' | 'progress' | 'parent' | 'parentCenter' | 'bindWechatDialog' | 'unbindWechatDialog' | 'settings' | 'ranks' | 'avatarCrop';
 type HallWrongBookEntry = { cardId: string; wrongCount: number; lastWrongAt: number };
 type HallCallbacks = {
   getCards: () => HallCard[];
@@ -97,6 +97,9 @@ export class LearningHall extends Component {
   private poemIndex = 0;
   private poemCorrect = 0;
   private poemLastCorrect = false;
+  private enteringYinXu = false;
+  private yinXuLoadingStep = 0;
+  private readonly yinXuLoadingSteps = 6;
   private nameDialogOpen = false;
   private pendingUnbindIndex = -1;
   private hiddenGameNodes: Node[] = [];
@@ -140,6 +143,7 @@ export class LearningHall extends Component {
   }
 
   onDestroy() {
+    this.unschedule(this.advanceYinXuLoading);
     input.off(Input.EventType.TOUCH_START, this.onTouchStart, this);
     input.off(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
     input.off(Input.EventType.TOUCH_END, this.onTouchEnd, this);
@@ -192,6 +196,7 @@ export class LearningHall extends Component {
   }
 
   private close() {
+    this.stopYinXuTransition();
     this.removeNameInput();
     this.root?.removeFromParent();
     this.root?.destroy();
@@ -309,6 +314,7 @@ export class LearningHall extends Component {
   private render(mode: HallMode, selectedId: string | null = this.selectedCardId) {
     if (!this.callbacks) return;
     if (mode === 'home') this.renderHome();
+    else if (mode === 'enteringYinXu') this.renderEnteringYinXu();
     else if (mode === 'codex') this.renderCodex(selectedId);
     else if (mode === 'review') this.renderReview();
     else if (mode === 'reviewResult') this.renderReviewResult();
@@ -334,6 +340,64 @@ export class LearningHall extends Component {
     this.drawCodexEntry(root, total, collected, 424, -140, t);
     this.drawPoemEntry(root, -330, -192, t);
     this.drawBottomNav(root, 'home', t);
+  }
+
+  /** Six beats give the player a deliberate transition instead of abruptly swapping into the map. */
+  private beginYinXuTransition() {
+    if (this.enteringYinXu) return;
+    this.enteringYinXu = true;
+    this.yinXuLoadingStep = 0;
+    this.render('enteringYinXu');
+    this.scheduleOnce(this.advanceYinXuLoading, 1);
+  }
+
+  private advanceYinXuLoading() {
+    if (!this.enteringYinXu) return;
+    this.yinXuLoadingStep++;
+    if (this.yinXuLoadingStep >= this.yinXuLoadingSteps) {
+      this.callbacks?.enterYinXu();
+      this.close();
+      return;
+    }
+    this.render('enteringYinXu');
+    this.scheduleOnce(this.advanceYinXuLoading, 1);
+  }
+
+  private stopYinXuTransition() {
+    this.unschedule(this.advanceYinXuLoading);
+    this.enteringYinXu = false;
+    this.yinXuLoadingStep = 0;
+  }
+
+  private renderEnteringYinXu() {
+    const root = this.createRoot('HallEnteringYinXu', 'enteringYinXu');
+    const t = this.theme();
+    const progress = this.yinXuLoadingStep / this.yinXuLoadingSteps;
+    const percent = Math.round(progress * 100);
+    const unlocked = this.cards().filter(card => card.unlocked);
+    const current = unlocked.length > 0 ? unlocked[this.yinXuLoadingStep % unlocked.length] : null;
+    const dots = '●'.repeat((this.yinXuLoadingStep % 3) + 1);
+
+    this.panel(root, 'HallYinXuLoadingPanel', 0, 0, 760, 430, t.card, false);
+    this.label(root, 'HallYinXuLoadingEyebrow', '殷 商 寻 字 之 旅', 0, 146, 480, 28, 15, t.goldSub, 'center', 6);
+    this.label(root, 'HallYinXuLoadingTitle', '前往殷墟', 0, 100, 440, 48, 34, t.goldInk, 'center', 6);
+    this.label(root, 'HallYinXuLoadingHint', '整理行囊，追寻三千年前的文字印记', 0, 62, 560, 28, 17, t.goldSub, 'center', 6);
+    const seal = this.graphics(root, 'HallYinXuLoadingSeal', 0, -24, 150, 150, 4);
+    seal.fillColor = new Color(141, 47, 31, 245); seal.circle(0, 0, 72); seal.fill();
+    seal.strokeColor = new Color(244, 207, 129, 255); seal.lineWidth = 3; seal.circle(0, 0, 66); seal.stroke();
+    if (current) this.oracleGlyph(root, 'HallYinXuLoadingGlyph', current, 0, -15, 76, 86, 6);
+    else this.label(root, 'HallYinXuLoadingGlyphFallback', '甲', 0, -15, 86, 94, 52, new Color(255, 236, 187), 'center', 6);
+    this.label(root, 'HallYinXuLoadingLoading', `正在加载 ${dots}`, 0, -122, 300, 26, 17, t.goldInk, 'center', 6);
+    const barW = 500, barH = 18, barY = -170;
+    const bar = this.graphics(root, 'HallYinXuLoadingBar', 0, barY, barW, barH, 5);
+    bar.fillColor = new Color(33, 25, 34, 190); bar.roundRect(-barW / 2, -barH / 2, barW, barH, 9); bar.fill();
+    bar.strokeColor = new Color(231, 187, 97, 220); bar.lineWidth = 2; bar.roundRect(-barW / 2, -barH / 2, barW, barH, 9); bar.stroke();
+    if (progress > 0) {
+      const fillW = Math.max(10, (barW - 8) * progress);
+      const fill = this.graphics(root, 'HallYinXuLoadingBarFill', -barW / 2 + 4 + fillW / 2, barY, fillW, barH - 8, 6);
+      fill.fillColor = new Color(221, 159, 67, 255); fill.roundRect(-fillW / 2, -(barH - 8) / 2, fillW, barH - 8, 5); fill.fill();
+    }
+    this.label(root, 'HallYinXuLoadingPercent', `${percent}%`, 0, -205, 120, 26, 18, t.goldInk, 'center', 6);
   }
 
   /** Day/night-aware palette, mirrored from hall_full.html CSS.
@@ -1423,8 +1487,9 @@ export class LearningHall extends Component {
       if (this.hit(x, y, 295, 309, 120, 52)) { this.playSfx('tap'); this.open(); }
       return;
     }
+    if (this.mode === 'enteringYinXu') return;
     if (this.mode === 'home') {
-      if (this.hitCircle(x, y, -16, -6, 72)) { this.playSfx('confirm'); this.callbacks?.enterYinXu(); this.close(); }
+      if (this.hitCircle(x, y, -16, -6, 72)) { this.playSfx('confirm'); this.beginYinXuTransition(); }
       else if (this.hit(x, y, -442, -6, 180, 245)) { this.playSfx('tap'); this.render('ranks'); }
       else if (this.hit(x, y, 540, 109, 86, 30)) { this.playSfx('tap'); this.openReviewLibrary(); }
       else if (this.hit(x, y, 424, -140, 340, 112)) { this.playSfx('tap'); this.render('codex'); }
@@ -1536,7 +1601,7 @@ export class LearningHall extends Component {
       if (items.length > 0 && this.hit(x, y, -215, -245, 220, 50)) { this.playSfx('confirm'); this.beginWrongBookReview(); }
       else if (this.selectedWrongBookId && this.hit(x, y, 350, -210, 190, 44)) { this.playSfx('tap'); this.callbacks?.clearWrongBook(this.selectedWrongBookId); this.selectedWrongBookId = null; this.render('parent'); }
     } else if (this.mode === 'poem') {
-      if (this.poemQuestions.length === 0 && this.hit(x, y, 0, -110, 220, 56)) { this.playSfx('confirm'); this.callbacks?.enterYinXu(); this.close(); return; }
+      if (this.poemQuestions.length === 0 && this.hit(x, y, 0, -110, 220, 56)) { this.playSfx('confirm'); this.beginYinXuTransition(); return; }
       const positions: Array<[number, number]> = [[-345, -52], [-115, -52], [115, -52], [345, -52]];
       positions.forEach(([optionX, optionY], index) => {
         if (this.hit(x, y, optionX, optionY, 190, 208)) { this.playSfx('tap'); this.answerPoemChallenge(index); }
@@ -1545,7 +1610,7 @@ export class LearningHall extends Component {
       if (this.hit(x, y, 310, -202, 180, 50)) { this.playSfx('confirm'); this.nextPoemChallenge(); }
     } else if (this.mode === 'review') {
       if (this.reviewLibraryOpen) {
-        if (this.cards().filter(card => card.unlocked).length === 0 && this.hit(x, y, 0, -110, 220, 58)) { this.playSfx('confirm'); this.callbacks?.enterYinXu(); this.close(); }
+        if (this.cards().filter(card => card.unlocked).length === 0 && this.hit(x, y, 0, -110, 220, 58)) { this.playSfx('confirm'); this.beginYinXuTransition(); }
         else if (this.hit(x, y, 0, -226, 230, 58)) { this.playSfx('confirm'); this.beginReview(); }
         return;
       }
