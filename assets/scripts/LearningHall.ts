@@ -7,6 +7,8 @@ import {
   input,
   Input,
   Label,
+  Mask,
+  MaskType,
   Node,
   Rect,
   resources,
@@ -49,7 +51,7 @@ export type HallCard = {
   unlocked: boolean;
 };
 
-type HallMode = 'home' | 'codex' | 'review' | 'reviewResult' | 'progress' | 'parent' | 'parentCenter' | 'bindWechatDialog' | 'unbindWechatDialog' | 'settings' | 'ranks';
+type HallMode = 'home' | 'codex' | 'review' | 'reviewResult' | 'progress' | 'parent' | 'parentCenter' | 'bindWechatDialog' | 'unbindWechatDialog' | 'settings' | 'ranks' | 'avatarCrop';
 type HallCallbacks = {
   getCards: () => HallCard[];
   getProgress: () => { ink: number; coins: number; experience: number; attempts: number; correct: number };
@@ -86,6 +88,27 @@ export class LearningHall extends Component {
   private pendingUnbindIndex = -1;
   private hiddenGameNodes: Node[] = [];
   private viewportScale = 1;
+  // 昵称编辑用的 HTML input（替代 EditBox，保证学习机/平板弹系统拼音键盘）
+  private nameInputEl: HTMLInputElement | null = null;
+  // 头像裁剪状态
+  private cropSrc = '';
+  private cropImgW = 0;
+  private cropImgH = 0;
+  private cropSf: SpriteFrame | null = null;
+  private cropBoxX = 0;
+  private cropBoxY = 0;
+  private cropBoxSize = 250;
+  private cropDragMode: 'none' | 'move' | 'scale' = 'none';
+  private cropDragStartX = 0;
+  private cropDragStartY = 0;
+  private cropBoxStartX = 0;
+  private cropBoxStartY = 0;
+  private cropBoxStartSize = 0;
+  private readonly cropArea = 380; // 裁剪显示区边长（设计坐标）
+  private readonly cropCenterX = 0;
+  private readonly cropCenterY = 10;
+  private cropDispW = 0;
+  private cropDispH = 0;
 
   get isOpen() {
     return this.root?.isValid ?? false;
@@ -94,12 +117,16 @@ export class LearningHall extends Component {
   initialize(callbacks: HallCallbacks) {
     this.callbacks = callbacks;
     input.on(Input.EventType.TOUCH_START, this.onTouchStart, this);
+    input.on(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
+    input.on(Input.EventType.TOUCH_END, this.onTouchEnd, this);
     this.createHomeButton();
     this.open();
   }
 
   onDestroy() {
     input.off(Input.EventType.TOUCH_START, this.onTouchStart, this);
+    input.off(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
+    input.off(Input.EventType.TOUCH_END, this.onTouchEnd, this);
   }
 
   open() {
@@ -132,6 +159,7 @@ export class LearningHall extends Component {
   }
 
   private close() {
+    this.removeNameInput();
     this.root?.removeFromParent();
     this.root?.destroy();
     this.root = null;
@@ -184,37 +212,64 @@ export class LearningHall extends Component {
       }
       return;
     }
-    // Sub-pages: keep the original deep-night sky untouched.
+    // Sub-pages: day = parchment + warm texture (高级质感); night = original deep-night sky.
+    const night = this.callbacks?.getProfile().nightMode ?? false;
     const graphics = this.graphics(root, 'HallBackground', 0, 0, width, height, 0);
-    graphics.fillColor = new Color(18, 22, 49, 253); graphics.rect(-width / 2, -height / 2, width, height); graphics.fill();
-    const bands: Array<[number, Color]> = [
-      [272, new Color(57, 57, 104, 150)], [82, new Color(49, 69, 114, 110)], [-116, new Color(35, 50, 83, 115)],
-    ];
-    bands.forEach(([y, color]) => { graphics.fillColor = color; graphics.rect(-width / 2, y - 94, width, 188); graphics.fill(); });
-    graphics.strokeColor = new Color(226, 190, 110, 46); graphics.lineWidth = 2;
-    for (let x = -width / 2; x < width / 2; x += 110) { graphics.moveTo(x, -height / 2); graphics.lineTo(x + 190, -height / 2 + 210); }
-    for (let y = -height / 2 + 40; y < height / 2; y += 105) { graphics.moveTo(-width / 2, y); graphics.lineTo(width / 2, y); }
-    graphics.stroke();
-    this.label(root, 'HallPattern', '甲  骨  文  ·  殷  商  探  索', 0, -height / 2 + 32, 920, 28, 14, new Color(244, 205, 132, 115));
+    if (night) {
+      // 夜间：保留原来的深蓝紫夜空 + 斜线纹理
+      graphics.fillColor = new Color(18, 22, 49, 253); graphics.rect(-width / 2, -height / 2, width, height); graphics.fill();
+      const bands: Array<[number, Color]> = [
+        [272, new Color(57, 57, 104, 150)], [82, new Color(49, 69, 114, 110)], [-116, new Color(35, 50, 83, 115)],
+      ];
+      bands.forEach(([y, color]) => { graphics.fillColor = color; graphics.rect(-width / 2, y - 94, width, 188); graphics.fill(); });
+      graphics.strokeColor = new Color(226, 190, 110, 46); graphics.lineWidth = 2;
+      for (let x = -width / 2; x < width / 2; x += 110) { graphics.moveTo(x, -height / 2); graphics.lineTo(x + 190, -height / 2 + 210); }
+      for (let y = -height / 2 + 40; y < height / 2; y += 105) { graphics.moveTo(-width / 2, y); graphics.lineTo(width / 2, y); }
+      graphics.stroke();
+      this.label(root, 'HallPattern', '甲  骨  文  ·  殷  商  探  索', 0, -height / 2 + 32, 920, 28, 14, new Color(244, 205, 132, 115));
+    } else {
+      // 白天：暖灰底 + 暖色光带 + 沿用夜间斜线网格纹理（线条与夜间完全一致）
+      graphics.fillColor = new Color(232, 225, 208, 255); graphics.rect(-width / 2, -height / 2, width, height); graphics.fill();
+      const dayBands: Array<[number, Color]> = [
+        [272, new Color(250, 245, 235, 110)], [82, new Color(236, 225, 200, 90)], [-116, new Color(220, 205, 175, 96)],
+      ];
+      dayBands.forEach(([y, color]) => { graphics.fillColor = color; graphics.rect(-width / 2, y - 94, width, 188); graphics.fill(); });
+      // 斜线 + 水平线：与夜间模式完全一致（古铜金描边，线宽2）
+      graphics.strokeColor = new Color(226, 190, 110, 46); graphics.lineWidth = 2;
+      for (let x = -width / 2; x < width / 2; x += 110) { graphics.moveTo(x, -height / 2); graphics.lineTo(x + 190, -height / 2 + 210); }
+      for (let y = -height / 2 + 40; y < height / 2; y += 105) { graphics.moveTo(-width / 2, y); graphics.lineTo(width / 2, y); }
+      graphics.stroke();
+      this.label(root, 'HallPattern', '甲  骨  文  ·  殷  商  探  索', 0, -height / 2 + 32, 920, 28, 14, new Color(90, 70, 50, 150));
+    }
   }
 
   private drawHeader(root: Node, title: string, subtitle: string, back = false) {
+    const night = this.callbacks?.getProfile().nightMode ?? false;
     const header = this.graphics(root, 'HallHeader', 0, 286, 1150, 104, 2);
-    header.fillColor = new Color(60, 57, 101, 240); header.roundRect(-575, -52, 1150, 104, 22); header.fill();
-    header.strokeColor = new Color(219, 180, 108, 176); header.lineWidth = 2; header.roundRect(-575, -52, 1150, 104, 22); header.stroke();
-    const profile = this.callbacks!.getProfile();
-    const avatarFrame = new Node('HallAvatarFrame'); avatarFrame.parent = root; avatarFrame.setPosition(-505, 286, 4); avatarFrame.addComponent(UITransform).setContentSize(74, 74);
-    const avatarFallback = avatarFrame.addComponent(Graphics); avatarFallback.fillColor = new Color(232, 190, 118); avatarFallback.circle(0, 0, 35); avatarFallback.fill();
-    const avatar = new Node('HallAvatar'); avatar.parent = root; avatar.setPosition(-505, 286, 5); avatar.addComponent(UITransform).setContentSize(64, 64);
-    const avatarSprite = avatar.addComponent(Sprite); avatarSprite.sizeMode = Sprite.SizeMode.CUSTOM;
-    if (profile.avatarUrl) {
-      this.loadSpriteFrameFromDataUrl(profile.avatarUrl, avatarSprite);
+    if (night) {
+      header.fillColor = new Color(60, 57, 101, 240); header.roundRect(-575, -52, 1150, 104, 22); header.fill();
+      header.strokeColor = new Color(219, 180, 108, 176); header.lineWidth = 2; header.roundRect(-575, -52, 1150, 104, 22); header.stroke();
     } else {
-      this.loadSprite('characters/oracle-apprentice/down-0/spriteFrame', avatar, avatarSprite, true);
+      // 白天：浅米白面板 + 古铜金描边（描边线条与夜间一致）
+      header.fillColor = new Color(251, 247, 238, 240); header.roundRect(-575, -52, 1150, 104, 22); header.fill();
+      header.strokeColor = new Color(226, 190, 110, 200); header.lineWidth = 2; header.roundRect(-575, -52, 1150, 104, 22); header.stroke();
     }
-    this.label(root, 'HallPlayerName', profile.playerName || '少年卜官', -325, 304, 220, 34, 22, new Color(255, 239, 201), 'left', 6);
-    this.label(root, 'HallPlayerStatus', subtitle, -300, 272, 280, 28, 13, new Color(214, 206, 226), 'left', 6);
-    this.label(root, 'HallTitle', title, 190, 291, 530, 44, 29, new Color(255, 236, 185), 'center', 6);
+    const profile = this.callbacks!.getProfile();
+    const av = AVATARS.find(a => a.id === profile.avatarId) ?? AVATARS[0];
+    this.drawAvatar(root, 'HallHeaderAvatar', -505, 286, 35, {
+      url: profile.avatarUrl,
+      spritePath: profile.avatarUrl ? undefined : av.path,
+      frameColor: night ? new Color(232, 190, 118) : new Color(201, 168, 108),
+      bgColor: night ? new Color(60, 54, 86) : new Color(255, 248, 236),
+      z: 4,
+      linear: true,
+    });
+    const nameColor = night ? new Color(255, 239, 201) : new Color(58, 36, 16);
+    const statusColor = night ? new Color(214, 206, 226) : new Color(74, 48, 24);
+    const titleColor = night ? new Color(255, 236, 185) : new Color(58, 36, 16);
+    this.label(root, 'HallPlayerName', profile.playerName || '少年卜官', -325, 304, 220, 34, 22, nameColor, 'left', 6);
+    this.label(root, 'HallPlayerStatus', subtitle, -300, 272, 280, 28, 13, statusColor, 'left', 6);
+    this.label(root, 'HallTitle', title, 190, 291, 530, 44, 29, titleColor, 'center', 6);
     if (back) this.button(root, 'HallBack', '返回大厅', 480, 286, 150, 48, false);
   }
 
@@ -229,6 +284,7 @@ export class LearningHall extends Component {
     else if (mode === 'parentCenter') this.drawParentCenter();
     else if (mode === 'bindWechatDialog') this.drawBindWechatDialog();
     else if (mode === 'unbindWechatDialog') this.drawUnbindWechatDialog();
+    else if (mode === 'avatarCrop') this.drawAvatarCrop();
     else this.renderPlaceholder(mode);
   }
 
@@ -252,10 +308,10 @@ export class LearningHall extends Component {
     const night = this.callbacks?.getProfile().nightMode ?? false;
     return {
       night,
-      ink: night ? new Color(255, 233, 200) : new Color(58, 36, 16),     // #3a2410 backdrop text
-      sub: night ? new Color(230, 216, 188) : new Color(74, 48, 24),     // #4a3018
-      card: night ? new Color(40, 34, 58, 205) : new Color(28, 24, 18, 158), // rgba(28,24,18,.62)
-      cardStroke: night ? new Color(231, 187, 97, 200) : new Color(255, 215, 150, 72), // rgba(255,215,150,.28)
+      ink: night ? new Color(255, 233, 200) : new Color(255, 245, 220),     // day = pale cream on dark cards
+      sub: night ? new Color(230, 216, 188) : new Color(230, 216, 188),     // #e6d8bc
+      card: night ? new Color(40, 34, 58, 205) : new Color(60, 45, 32, 210), // 白天加深为深暖棕半透明
+      cardStroke: night ? new Color(231, 187, 97, 200) : new Color(226, 190, 110, 130), // 白天描边更明显
       goldInk: night ? new Color(255, 230, 189) : new Color(255, 230, 189), // #ffe6bd in-card text
       goldSub: night ? new Color(230, 216, 188) : new Color(230, 216, 188), // #e6d8bc
     };
@@ -294,29 +350,21 @@ export class LearningHall extends Component {
     // 头像（直径≈58px），留足右侧空间
     const avR = this.vh(0.040);
     const avX = -this.vw(0.432);
-    const glow = this.graphics(root, 'HallTopAvatarGlow', avX, topY, (avR + 6) * 2, (avR + 6) * 2, 4);
-    glow.fillColor = new Color(255, 210, 140, 77); glow.circle(0, 0, avR + 5); glow.fill();
-    const avBg = this.graphics(root, 'HallTopAvatarBg', avX, topY, avR * 2, avR * 2, 5);
-    avBg.fillColor = new Color(212, 167, 106, 255); avBg.circle(0, 0, avR); avBg.fill();
-    const avInner = this.graphics(root, 'HallTopAvatarInner', avX, topY, avR * 1.58, avR * 1.58, 5);
-    avInner.fillColor = new Color(110, 94, 78, 255); avInner.circle(0, 0, avR * 0.79); avInner.fill();
-    avInner.strokeColor = new Color(200, 184, 152, 255); avInner.lineWidth = 2; avInner.circle(0, 0, avR * 0.79 - 1); avInner.stroke();
     const av = AVATARS.find(a => a.id === profile.avatarId) ?? AVATARS[0];
-    if (profile.avatarUrl) {
-      const avatarNode = new Node('HallTopAvatarSprite'); avatarNode.parent = root; avatarNode.setPosition(avX, topY, 6);
-      const avSize = avR * 1.6;
-      const avatarSprite = avatarNode.addComponent(Sprite);
-      avatarSprite.sizeMode = Sprite.SizeMode.CUSTOM;
-      avatarNode.addComponent(UITransform).setContentSize(avSize, avSize);
-      this.loadSpriteFrameFromDataUrl(profile.avatarUrl, avatarSprite);
-    } else {
-      this.label(root, 'HallTopAvatarEmoji', av.emoji, avX, topY, avR * 1.35, avR * 1.35, avR * 0.95, new Color(255, 233, 200), 'center', 6);
-    }
+    this.drawAvatar(root, 'HallTopAvatar', avX, topY, avR, {
+      url: profile.avatarUrl,
+      emoji: profile.avatarUrl ? undefined : av.emoji,
+      frameColor: new Color(231, 187, 97),
+      bgColor: new Color(255, 248, 236),
+      z: 5,
+    });
     // 左上：头像右侧上方名字，下方金棕胶囊段位 + 已识字数（严格不重叠）
     const textStart = avX + avR + 6; // 文字块左边界，紧贴头像右边缘
-    this.label(root, 'HallPlayerName', profile.playerName || '少年卜官', textStart + 70, topY + 10, 140, 26, 17, t.ink, 'center', 6);
+    const nameColor = t.night ? t.ink : new Color(58, 36, 16);
+    const subColor = t.night ? t.sub : new Color(74, 48, 24);
+    this.label(root, 'HallPlayerName', profile.playerName || '少年卜官', textStart + 70, topY + 10, 140, 26, 17, nameColor, 'center', 6);
     this.drawRankBadge(root, rankIdx, textStart + 70, topY - 18, t);
-    this.label(root, 'HallCollectedHint', `已识 ${collected} 字`, textStart + 54 + 54 + 6 + 45, topY - 18, 90, 22, 13, t.sub, 'center', 6);
+    this.label(root, 'HallCollectedHint', `已识 ${collected} 字`, textStart + 54 + 54 + 6 + 45, topY - 18, 90, 22, 13, subColor, 'center', 6);
     // 右侧货币（名+值一行，对齐 .rightbar .cur）+ 家长按钮
     this.drawCurrencies(root, progress, this.vw(0.150), topY, t);
     this.drawParentBtn(root, this.vw(0.422), topY, t);
@@ -346,8 +394,10 @@ export class LearningHall extends Component {
     ];
     items.forEach(([name, val], i) => {
       const x = startX + i * 110;
-      this.label(root, `HallCurName-${i}`, name, x - 22, y, 44, 22, 13, t.sub, 'right', 6);
-      this.label(root, `HallCurVal-${i}`, `${val}`, x + 20, y, 50, 22, 16, t.ink, 'left', 6);
+      const curSub = t.night ? t.sub : new Color(74, 48, 24);
+      const curInk = t.night ? t.ink : new Color(58, 36, 16);
+      this.label(root, `HallCurName-${i}`, name, x - 22, y, 44, 22, 13, curSub, 'right', 6);
+      this.label(root, `HallCurVal-${i}`, `${val}`, x + 20, y, 50, 22, 16, curInk, 'left', 6);
     });
   }
 
@@ -366,22 +416,16 @@ export class LearningHall extends Component {
     const node = this.graphics(root, 'HallCharacterCard', x, y, w, h, 3);
     node.fillColor = t.card; node.roundRect(-w / 2, -h / 2, w, h, 14); node.fill();
     node.strokeColor = t.cardStroke; node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 13); node.stroke();
-    // 小人头像：浅米圆背景 + Sprite（像素风用 NEAREST）
+    // 小人头像：固定显示殷墟小卜官（任务形象），不受玩家上传头像影响
     const avR = this.vh(0.070);
     const avY = y + this.vh(0.060);
-    const avBg = this.graphics(root, 'HallCharAvatarBg', x, avY, avR * 2, avR * 2, 5);
-    avBg.fillColor = new Color(255, 245, 220, 230); avBg.circle(0, 0, avR); avBg.fill();
-    avBg.strokeColor = new Color(180, 130, 70, 200); avBg.lineWidth = 2; avBg.circle(0, 0, avR - 2); avBg.stroke();
-    const profile = this.callbacks!.getProfile();
-    const avatar = new Node('HallCharAvatar'); avatar.parent = root; avatar.setPosition(x, avY, 6);
-    const avSize = avR * 1.55;
-    avatar.addComponent(UITransform).setContentSize(avSize, avSize);
-    const avatarSprite = avatar.addComponent(Sprite); avatarSprite.sizeMode = Sprite.SizeMode.CUSTOM;
-    if (profile.avatarUrl) {
-      this.loadSpriteFrameFromDataUrl(profile.avatarUrl, avatarSprite);
-    } else {
-      this.loadSprite('characters/oracle-apprentice/down-0/spriteFrame', avatar, avatarSprite, false);
-    }
+    this.drawAvatar(root, 'HallCharAvatar', x, avY, avR, {
+      spritePath: 'characters/oracle-apprentice/down-0/spriteFrame',
+      frameColor: new Color(231, 187, 97),
+      bgColor: new Color(255, 248, 236),
+      z: 5,
+      linear: false,
+    });
     // 去掉了“少年卜官”名字，只保留角色身份、段位进度与提示
     this.label(root, 'HallCharRole', '殷墟小卜官', x, y - this.vh(0.026), 150, 20, 13, t.goldInk, 'center', 6);
     const nextRank = RANKS[Math.min(rankIdx + 1, RANKS.length - 1)];
@@ -404,7 +448,9 @@ export class LearningHall extends Component {
 
   private drawEnterYinXu(root: Node, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
     const r = this.vh(0.10);
-    this.label(root, 'HallEnterSupertitle', '殷商寻字', x, y + r + this.vh(0.055), 280, 30, 20, t.ink, 'center', 6);
+    const inkColor = t.night ? t.ink : new Color(58, 36, 16);
+    const subColor = t.night ? t.sub : new Color(74, 48, 24);
+    this.label(root, 'HallEnterSupertitle', '殷商寻字', x, y + r + this.vh(0.055), 280, 30, 20, inkColor, 'center', 6);
     // 外黑环 + 橙红发光（对齐 box-shadow: 0 0 0 5px rgba(0,0,0,.25), 0 6px 30px rgba(220,80,40,.5)）
     const ring = this.graphics(root, 'HallEnterRing', x, y, (r + 5) * 2, (r + 5) * 2, 3);
     ring.fillColor = new Color(0, 0, 0, 64); ring.circle(0, 0, r + 5); ring.fill();
@@ -418,7 +464,8 @@ export class LearningHall extends Component {
     node.strokeColor = new Color(255, 242, 216, 255); node.lineWidth = 3; node.circle(0, 0, r - 3); node.stroke();
     this.label(root, 'HallEnterEmoji', '🏛', x, y + this.vh(0.016), 64, 50, 30, new Color(255, 242, 216), 'center', 6);
     this.label(root, 'HallEnterTitle', '进入殷墟', x, y - this.vh(0.028), 150, 24, 14, new Color(255, 240, 220), 'center', 6);
-    this.label(root, 'HallEnterSub', '探索草野河畔，发掘甲骨遗存', x, y - r - this.vh(0.040), 420, 22, 12, t.sub, 'center', 6);
+    const enterSubColor = t.night ? t.sub : new Color(74, 48, 24);
+    this.label(root, 'HallEnterSub', '探索草野河畔，发掘甲骨遗存', x, y - r - this.vh(0.040), 420, 22, 12, enterSubColor, 'center', 6);
   }
 
   private drawReviewSuggestion(root: Node, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
@@ -430,29 +477,29 @@ export class LearningHall extends Component {
     node.strokeColor = t.cardStroke; node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 9); node.stroke();
     // 顶部：标题（左上角）+ 去复习按钮
     const topY = y + h / 2 - 22;
-    this.titleLabel(root, 'HallSugTitle', '建议复习', x - w / 2 + 8, topY, 120, 20, 14, new Color(255, 240, 214), 6);
+    this.titleLabel(root, 'HallSugTitle', '建议复习', x - w / 2 + 8, topY, 120, 20, 14, t.goldInk, 6);
     this.button(root, 'HallSugGo', '去复习 ›', x + w / 2 - 54, topY, 80, 28, true);
     // 中间：代表性易错大字（现代汉字，整体下移避免与顶部标题重叠）
     const glyphY = y - 6;
     if (weak.length === 0) {
-      this.label(root, 'HallSugEmpty', '暂无需复习', x, glyphY, w - 40, 30, 14, new Color(216, 200, 168), 'center', 6);
+      this.label(root, 'HallSugEmpty', '暂无需复习', x, glyphY, w - 40, 30, 14, t.goldSub, 'center', 6);
     } else {
       const show = weak[0];
       const boxW = 120, boxH = 70;
       const box = this.graphics(root, 'HallSugGlyphBox', x, glyphY, boxW, boxH, 5);
-      box.fillColor = new Color(70, 55, 40, 200); box.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 8); box.fill();
-      box.strokeColor = new Color(255, 215, 150, 120); box.lineWidth = 2; box.roundRect(-boxW / 2 + 1, -boxH / 2 + 1, boxW - 2, boxH - 2, 7); box.stroke();
+      box.fillColor = t.card; box.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 8); box.fill();
+      box.strokeColor = t.cardStroke; box.lineWidth = 2; box.roundRect(-boxW / 2 + 1, -boxH / 2 + 1, boxW - 2, boxH - 2, 7); box.stroke();
       // 手动创建大字 Label，避免 label() 默认 SHRINK/Wrap 导致大字缩没
       const glyphNode = new Node('HallSugGlyph'); glyphNode.parent = root; glyphNode.setPosition(x, glyphY, 6);
       glyphNode.addComponent(UITransform).setContentSize(boxW - 10, boxH - 10);
       const glyphLabel = glyphNode.addComponent(Label);
       glyphLabel.string = show.modern;
-      glyphLabel.fontSize = 48; glyphLabel.lineHeight = 52; glyphLabel.color = new Color(255, 240, 214);
+      glyphLabel.fontSize = 48; glyphLabel.lineHeight = 52; glyphLabel.color = t.goldInk;
       glyphLabel.horizontalAlign = Label.HorizontalAlign.CENTER; glyphLabel.verticalAlign = Label.VerticalAlign.CENTER;
       glyphLabel.overflow = Label.Overflow.CLAMP; glyphLabel.enableWrapText = false;
     }
     // 底部：易错字数
-    this.label(root, 'HallSugNote', `易错 ${weak.length} 字`, x - w / 2 + 80, y - h / 2 + 18, 120, 18, 12, new Color(216, 200, 168), 'left', 6);
+    this.label(root, 'HallSugNote', `易错 ${weak.length} 字`, x - w / 2 + 80, y - h / 2 + 18, 120, 18, 12, t.goldSub, 'left', 6);
   }
 
   private drawCodexEntry(root: Node, total: number, collected: number, x: number, y: number, t: ReturnType<LearningHall['theme']>) {
@@ -462,8 +509,8 @@ export class LearningHall extends Component {
     node.strokeColor = t.cardStroke; node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 9); node.stroke();
     // 顶部：标题（左上角）+ 计数
     const topY = y + h / 2 - 18;
-    this.titleLabel(root, 'HallCodexEntryTitle', '图鉴进度', x - w / 2 + 8, topY, 120, 20, 14, new Color(255, 240, 214), 6);
-    this.label(root, 'HallCodexEntryCount', `${collected} / ${total}`, x + w / 2 - 18, topY, 90, 22, 16, new Color(255, 240, 214), 'right', 6);
+    this.titleLabel(root, 'HallCodexEntryTitle', '图鉴进度', x - w / 2 + 8, topY, 120, 20, 14, t.goldInk, 6);
+    this.label(root, 'HallCodexEntryCount', `${collected} / ${total}`, x + w / 2 - 18, topY, 90, 22, 16, t.goldInk, 'right', 6);
     // 进度条
     const barW = 300, barH = 6; const pct = total > 0 ? collected / total : 0;
     const barY = y + 4;
@@ -475,8 +522,8 @@ export class LearningHall extends Component {
     }
     // 底部：左说明 + 右百分比，避免重叠
     const bottomY = y - h / 2 + 20;
-    this.label(root, 'HallCodexEntrySub', '已收集真实字形', x - w / 2 + 93, bottomY, 150, 18, 12, new Color(216, 200, 168), 'left', 6);
-    this.label(root, 'HallCodexEntryPct', `${Math.round(pct * 100)}%`, x + w / 2 - 18, bottomY, 50, 18, 12, new Color(216, 200, 168), 'right', 6);
+    this.label(root, 'HallCodexEntrySub', '已收集真实字形', x - w / 2 + 93, bottomY, 150, 18, 12, t.goldSub, 'left', 6);
+    this.label(root, 'HallCodexEntryPct', `${Math.round(pct * 100)}%`, x + w / 2 - 18, bottomY, 50, 18, 12, t.goldSub, 'right', 6);
   }
 
   private drawBottomNav(root: Node, mode: HallMode, t: ReturnType<LearningHall['theme']>) {
@@ -562,33 +609,37 @@ export class LearningHall extends Component {
   private renderCodex(selectedId: string | null) {
     const root = this.createRoot('HallCodex', 'codex');
     const cards = this.cards(); const unlocked = cards.filter(card => card.unlocked);
+    const t = this.theme();
     this.selectedCardId = selectedId && cards.some(card => card.id === selectedId && card.unlocked) ? selectedId : unlocked[0]?.id ?? null;
     this.drawHeader(root, '甲骨图鉴', `已收集 ${unlocked.length} / ${cards.length} 个真实甲骨文字`, true);
-    this.panel(root, 'HallCodexGrid', -190, -30, 760, 480, new Color(76, 57, 62), false);
+    this.panel(root, 'HallCodexGrid', -190, -30, 760, 480, t.card, false);
     cards.forEach((card, index) => {
       const x = -430 + (index % 4) * 160; const y = 105 - Math.floor(index / 4) * 200;
       const item = this.graphics(root, `HallCodex-${index}`, x, y, 138, 168, 4);
-      item.fillColor = card.unlocked ? new Color(231, 209, 157, 248) : new Color(54, 54, 67, 245);
-      item.roundRect(-69, -84, 138, 168, 12); item.fill();
-      item.strokeColor = card.unlocked ? this.qualityColor(card.quality) : new Color(122, 119, 140); item.lineWidth = 3; item.roundRect(-67, -82, 134, 164, 10); item.stroke();
       if (card.unlocked) {
+        item.fillColor = t.card;
+        item.roundRect(-69, -84, 138, 168, 12); item.fill();
+        item.strokeColor = this.qualityColor(card.quality); item.lineWidth = 3; item.roundRect(-67, -82, 134, 164, 10); item.stroke();
         this.oracleGlyph(root, `HallCodexGlyph-${index}`, card, x, y + 22, 60, 75, 6);
-        this.label(root, `HallCodexModern-${index}`, card.modern, x, y - 41, 116, 25, 20, new Color(78, 45, 28));
-        this.label(root, `HallCodexPinyin-${index}`, card.pinyin, x, y - 63, 116, 22, 13, new Color(108, 65, 42));
+        this.label(root, `HallCodexModern-${index}`, card.modern, x, y - 41, 116, 25, 20, t.goldInk);
+        this.label(root, `HallCodexPinyin-${index}`, card.pinyin, x, y - 63, 116, 22, 13, t.goldSub);
       } else {
-        this.label(root, `HallCodexLocked-${index}`, '尚未发现', x, y + 10, 116, 40, 17, new Color(180, 177, 193));
-        this.label(root, `HallCodexUnknown-${index}`, '？', x, y - 35, 70, 58, 36, new Color(115, 112, 132));
+        item.fillColor = t.night ? new Color(54, 54, 67, 245) : new Color(74, 70, 64, 245);
+        item.roundRect(-69, -84, 138, 168, 12); item.fill();
+        item.strokeColor = t.night ? new Color(122, 119, 140) : new Color(138, 132, 120); item.lineWidth = 3; item.roundRect(-67, -82, 134, 164, 10); item.stroke();
+        this.label(root, `HallCodexLocked-${index}`, '尚未发现', x, y + 10, 116, 40, 17, t.night ? new Color(180, 177, 193) : new Color(160, 155, 145));
+        this.label(root, `HallCodexUnknown-${index}`, '？', x, y - 35, 70, 58, 36, t.night ? new Color(115, 112, 132) : new Color(130, 124, 112));
       }
     });
-    this.panel(root, 'HallCodexDetail', 405, -30, 330, 480, new Color(223, 184, 113), true);
+    this.panel(root, 'HallCodexDetail', 405, -30, 330, 480, t.card, false);
     const selected = cards.find(card => card.id === this.selectedCardId);
     if (!selected) {
-      this.label(root, 'HallCodexEmpty', '先前往殷墟探索，\n发现第一片甲骨文字吧！', 405, 0, 260, 100, 21, new Color(95, 57, 36));
+      this.label(root, 'HallCodexEmpty', '先前往殷墟探索，\n发现第一片甲骨文字吧！', 405, 0, 260, 100, 21, t.goldInk);
       return;
     }
     this.oracleGlyph(root, 'HallCodexSelectedGlyph', selected, 405, 120, 100, 126, 5);
-    this.label(root, 'HallCodexSelectedTitle', `${selected.modern}  ·  ${selected.pinyin}`, 405, 38, 278, 38, 26, new Color(85, 47, 30));
-    this.label(root, 'HallCodexSelectedDetail', `字义：${selected.meaning}\n\n演变：${selected.evolution}\n\n商代生活：${selected.history}`, 405, -120, 270, 270, 16, new Color(92, 56, 35), 'left');
+    this.label(root, 'HallCodexSelectedTitle', `${selected.modern}  ·  ${selected.pinyin}`, 405, 38, 278, 38, 26, t.goldInk);
+    this.label(root, 'HallCodexSelectedDetail', `字义：${selected.meaning}\n\n演变：${selected.evolution}\n\n商代生活：${selected.history}`, 405, -120, 270, 270, 16, t.goldSub, 'left');
   }
 
   private beginReview() {
@@ -678,19 +729,21 @@ export class LearningHall extends Component {
   private renderProgress() {
     const root = this.createRoot('HallProgress', 'progress');
     const cards = this.cards(); const collected = cards.filter(card => card.unlocked).length; const progress = this.progress();
+    const t = this.theme();
     this.drawHeader(root, '学习进度', '你的甲骨文字收集与复习记录', true);
-    this.panel(root, 'HallProgressPanel', 0, -10, 980, 440, new Color(76, 57, 62), false);
-    const items: Array<[string, string, string, number, Color]> = [
-      ['收集图鉴', `${collected} / ${cards.length}`, '已发现真实甲骨文字', -310, new Color(86, 133, 174)],
-      ['复习答题', `${progress.correct} / ${progress.attempts}`, '累计答对 / 累计作答', 0, new Color(180, 105, 61)],
-      ['探索资源', `${progress.ink}`, '当前持有墨料', 310, new Color(104, 145, 99)],
+    this.panel(root, 'HallProgressPanel', 0, -10, 980, 440, t.card, false);
+    const items: Array<[string, string, string, number]> = [
+      ['收集图鉴', `${collected} / ${cards.length}`, '已发现真实甲骨文字', -310],
+      ['复习答题', `${progress.correct} / ${progress.attempts}`, '累计答对 / 累计作答', 0],
+      ['探索资源', `${progress.ink}`, '当前持有墨料', 310],
     ];
-    items.forEach(([title, value, detail, x, color]) => {
+    items.forEach(([title, value, detail, x]) => {
       const card = this.graphics(root, `HallProgress-${title}`, x, 30, 260, 260, 4);
-      card.fillColor = color; card.roundRect(-130, -130, 260, 260, 20); card.fill();
-      this.label(root, `HallProgressTitle-${title}`, title, x, 84, 220, 35, 22, new Color(255, 244, 218));
-      this.label(root, `HallProgressValue-${title}`, value, x, 15, 220, 72, 40, new Color(255, 245, 218));
-      this.label(root, `HallProgressDetail-${title}`, detail, x, -65, 220, 45, 15, new Color(246, 238, 220));
+      card.fillColor = t.card; card.roundRect(-130, -130, 260, 260, 20); card.fill();
+      card.strokeColor = t.cardStroke; card.lineWidth = 2; card.roundRect(-128, -128, 256, 256, 18); card.stroke();
+      this.label(root, `HallProgressTitle-${title}`, title, x, 84, 220, 35, 22, t.goldInk);
+      this.label(root, `HallProgressValue-${title}`, value, x, 15, 220, 72, 40, t.goldInk);
+      this.label(root, `HallProgressDetail-${title}`, detail, x, -65, 220, 45, 15, t.goldSub);
     });
   }
 
@@ -698,18 +751,11 @@ export class LearningHall extends Component {
     if (mode === 'settings') { this.drawSettingsPanel(); return; }
     // 错题本 = 家长端功能，后续单独开放，当前显示「功能未完善」
     const root = this.createRoot('HallWrongBook', mode);
+    const t = this.theme();
     this.drawHeader(root, '错题本', '', true);
-    this.panel(root, 'HallWrongBookPanel', 0, -20, 760, 320, new Color(76, 57, 62), false);
-    this.label(root, 'HallWrongBookIcon', '⭐', 0, 78, 96, 96, 52, new Color(255, 233, 176), 'center', 6);
-    this.label(root, 'HallWrongBookTip', '功能未完善', 0, -8, 420, 56, 30, new Color(255, 240, 214), 'center', 6);
-  }
-
-  private drawWechatButton(root: Node, name: string, x: number, y: number, w: number, h: number, text: string) {
-    const node = this.graphics(root, name, x, y, w, h, 6);
-    node.fillColor = new Color(7, 193, 96, 255); node.roundRect(-w / 2, -h / 2, w, h, 12); node.fill();
-    node.strokeColor = new Color(6, 165, 82, 255); node.lineWidth = 1; node.roundRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, 11); node.stroke();
-    this.label(root, `${name}Icon`, '💬', x - w / 2 + 24, y, 28, 28, 18, new Color(255, 255, 255), 'center', 7);
-    this.label(root, `${name}Txt`, text, x + 10, y, w - 52, 28, 18, new Color(255, 255, 255), 'center', 7);
+    this.panel(root, 'HallWrongBookPanel', 0, -20, 760, 320, t.card, false);
+    this.label(root, 'HallWrongBookIcon', '⭐', 0, 78, 96, 96, 52, t.goldInk, 'center', 6);
+    this.label(root, 'HallWrongBookTip', '功能未完善', 0, -8, 420, 56, 30, t.goldInk, 'center', 6);
   }
 
   private drawParentCenter() {
@@ -718,12 +764,12 @@ export class LearningHall extends Component {
     const t = this.theme();
     const wechats = profile.wechats || [];
 
-    // 遮罩 + 居中面板（沿用设置面板风格）
+    // 遮罩 + 居中面板（沿用设置面板风格：半透明主题卡片色）
     const mask = this.graphics(root, 'HallPCMask', 0, 0, 1280, 720, 1);
     mask.fillColor = new Color(40, 28, 12, 180); mask.rect(-640, -360, 1280, 720); mask.fill();
     const pw = 560, ph = 460;
     const panel = this.graphics(root, 'HallPCPanel', 0, 0, pw, ph, 3);
-    panel.fillColor = t.night ? new Color(24, 18, 12, 238) : new Color(255, 248, 228, 238);
+    panel.fillColor = t.night ? new Color(40, 34, 58, 190) : new Color(60, 45, 32, 195);
     panel.roundRect(-pw / 2, -ph / 2, pw, ph, 22); panel.fill();
     panel.strokeColor = t.cardStroke; panel.lineWidth = 4; panel.roundRect(-pw / 2 + 2, -ph / 2 + 2, pw - 4, ph - 4, 19); panel.stroke();
 
@@ -741,24 +787,26 @@ export class LearningHall extends Component {
     wechats.forEach((w, i) => {
       const cy = 110 - i * 70;
       const avR = 22;
-      // 绿色圆形头像背景
-      const av = this.graphics(root, `HallPCWechatAvatar-${i}`, -180, cy, avR * 2, avR * 2, 6);
-      av.fillColor = new Color(7, 193, 96, 255); av.circle(0, 0, avR); av.fill();
-      this.label(root, `HallPCWechatIcon-${i}`, '💬', -180, cy, 32, 32, 18, new Color(255, 255, 255), 'center', 7);
+      // 微信头像：有 url 则圆形裁剪显示，否则主题色底 + 聊天气泡兜底
+      this.drawAvatar(root, `HallPCWechatAvatar-${i}`, -180, cy, avR, {
+        url: w.avatarUrl,
+        emoji: w.avatarUrl ? undefined : '💬',
+        frameColor: t.night ? new Color(255, 210, 140, 200) : new Color(176, 139, 94, 200),
+        bgColor: t.night ? new Color(60, 54, 86) : new Color(255, 248, 236),
+        z: 6,
+      });
       // 文字使用真正左对齐 titleLabel，x 即左边缘
       const textX = -130;
       this.titleLabel(root, `HallPCBound-${i}`, `已绑定 · ${w.nickname || '微信用户'}`, textX, cy + 10, 220, 24, 16, t.ink, 7);
       this.titleLabel(root, `HallPCBoundSub-${i}`, '微信账号已关联', textX, cy - 15, 220, 20, 12, t.sub, 7);
-      // 解绑按钮
-      const unbind = this.graphics(root, `HallPCUnbind-${i}`, 196, cy, 84, 32, 6);
-      unbind.fillColor = t.night ? new Color(120, 60, 50, 160) : new Color(150, 90, 80, 150); unbind.roundRect(-42, -16, 84, 32, 8); unbind.fill();
-      this.label(root, `HallPCUnbindTxt-${i}`, '解绑', 196, cy, 64, 22, 14, new Color(255, 235, 225), 'center', 7);
+      // 解绑按钮：使用系统统一 button 样式
+      this.button(root, `HallPCUnbind-${i}`, '解绑', 196, cy, 84, 32, false, 6);
     });
 
     // 未满两个时显示「绑定微信」按钮 + 提示
     if (wechats.length < 2) {
       const bindY = 110 - wechats.length * 70;
-      this.drawWechatButton(root, 'HallPCBind', 0, bindY, 240, 52, '绑定微信');
+      this.button(root, 'HallPCBind', '绑定微信', 0, bindY, 240, 52, true, 6);
       this.label(root, 'HallPCBindLimit', '最多绑定两个账号', 0, bindY - 40, 240, 20, 12, t.sub, 'center', 6);
     }
 
@@ -776,7 +824,7 @@ export class LearningHall extends Component {
     mask.fillColor = new Color(0, 0, 0, 160); mask.rect(-640, -360, 1280, 720); mask.fill();
     // 面板
     const panel = this.graphics(root, 'HallBindWxPanel', 0, 0, dw, dh, 21);
-    panel.fillColor = t.night ? new Color(30, 24, 18, 245) : new Color(255, 248, 228, 245); panel.roundRect(-dw / 2, -dh / 2, dw, dh, 18); panel.fill();
+    panel.fillColor = t.night ? new Color(40, 34, 58, 190) : new Color(60, 45, 32, 195); panel.roundRect(-dw / 2, -dh / 2, dw, dh, 18); panel.fill();
     panel.strokeColor = t.cardStroke; panel.lineWidth = 3; panel.roundRect(-dw / 2 + 2, -dh / 2 + 2, dw - 4, dh - 4, 15); panel.stroke();
     // 标题
     this.label(root, 'HallBindWxTitle', '绑定微信', 0, 78, 300, 32, 18, t.ink, 'center', 22);
@@ -798,7 +846,7 @@ export class LearningHall extends Component {
     mask.fillColor = new Color(0, 0, 0, 160); mask.rect(-640, -360, 1280, 720); mask.fill();
     // 面板
     const panel = this.graphics(root, 'HallUnbindWxPanel', 0, 0, dw, dh, 21);
-    panel.fillColor = t.night ? new Color(30, 24, 18, 245) : new Color(255, 248, 228, 245); panel.roundRect(-dw / 2, -dh / 2, dw, dh, 18); panel.fill();
+    panel.fillColor = t.night ? new Color(40, 34, 58, 190) : new Color(60, 45, 32, 195); panel.roundRect(-dw / 2, -dh / 2, dw, dh, 18); panel.fill();
     panel.strokeColor = t.cardStroke; panel.lineWidth = 3; panel.roundRect(-dw / 2 + 2, -dh / 2 + 2, dw - 4, dh - 4, 15); panel.stroke();
     // 标题
     this.label(root, 'HallUnbindWxTitle', '解绑微信', 0, 78, 300, 32, 18, t.ink, 'center', 22);
@@ -819,7 +867,8 @@ export class LearningHall extends Component {
     mask.fillColor = new Color(40, 28, 12, 180); mask.rect(-640, -360, 1280, 720); mask.fill();
     const pw = 560, ph = 620;
     const panel = this.graphics(root, 'HallSettingsPanel', 0, 0, pw, ph, 3);
-    panel.fillColor = t.night ? new Color(24, 18, 12, 238) : new Color(255, 248, 228, 238);
+    // 大外框跟随界面卡片配色：夜间深蓝紫半透明、白天深暖棕半透明，比卡片略透
+    panel.fillColor = t.night ? new Color(40, 34, 58, 190) : new Color(60, 45, 32, 195);
     panel.roundRect(-pw / 2, -ph / 2, pw, ph, 22); panel.fill();
     panel.strokeColor = t.cardStroke; panel.lineWidth = 4; panel.roundRect(-pw / 2 + 2, -ph / 2 + 2, pw - 4, ph - 4, 19); panel.stroke();
     // 标题 + 关闭（对齐 HTML .set-top）
@@ -875,27 +924,23 @@ export class LearningHall extends Component {
   private drawSectionTitle(root: Node, name: string, text: string, y: number, t: ReturnType<LearningHall['theme']>) {
     const bar = this.graphics(root, `${name}Bar`, -220, y, 3, 14, 7);
     bar.fillColor = new Color(200, 62, 44, 255); bar.roundRect(-1.5, -7, 3, 14, 1.5); bar.fill();
-    this.label(root, name, text, -118, y, 200, 22, 13, t.night ? new Color(255, 217, 138) : new Color(122, 74, 20), 'left', 7);
+    // 小节标题文字在白天模式下也保持浅金色，确保在深色卡片上清晰可见
+    this.label(root, name, text, -118, y, 200, 22, 13, new Color(255, 217, 138), 'left', 7);
   }
 
   private drawAvatarCircle(root: Node, name: string, x: number, y: number, r: number, emoji: string, selected: boolean, t: ReturnType<LearningHall['theme']>, avatarUrl?: string) {
     if (selected) {
-      const ring = this.graphics(root, `${name}Ring`, x, y, (r + 6) * 2, (r + 6) * 2, 4);
+      const ring = this.graphics(root, `${name}Ring`, x, y, (r + 6) * 2, (r + 6) * 2, 3);
+      ring.fillColor = new Color(255, 180, 70, 80); ring.circle(0, 0, r + 5); ring.fill();
       ring.strokeColor = new Color(255, 180, 70, 220); ring.lineWidth = 3; ring.circle(0, 0, r + 4); ring.stroke();
     }
-    const node = this.graphics(root, name, x, y, r * 2, r * 2, 5);
-    node.fillColor = new Color(255, 250, 235, 255); node.circle(0, 0, r); node.fill();
-    node.strokeColor = selected ? new Color(180, 120, 50) : new Color(180, 165, 145, 200); node.lineWidth = selected ? 3 : 2; node.circle(0, 0, r - 2); node.stroke();
-    if (avatarUrl) {
-      const avatarNode = new Node(`${name}Img`); avatarNode.parent = root; avatarNode.setPosition(x, y, 6);
-      const avSize = r * 1.7;
-      const avatarSprite = avatarNode.addComponent(Sprite);
-      avatarSprite.sizeMode = Sprite.SizeMode.CUSTOM;
-      avatarNode.addComponent(UITransform).setContentSize(avSize, avSize);
-      this.loadSpriteFrameFromDataUrl(avatarUrl, avatarSprite);
-    } else {
-      this.label(root, `${name}Emoji`, emoji, x, y, r * 2 - 6, r * 2 - 6, r * 1.2, new Color(100, 70, 40), 'center', 6);
-    }
+    this.drawAvatar(root, name, x, y, r, {
+      url: avatarUrl,
+      emoji: avatarUrl ? undefined : emoji,
+      frameColor: selected ? new Color(255, 180, 70) : new Color(201, 168, 108),
+      bgColor: t.night ? new Color(60, 54, 86) : new Color(255, 248, 236),
+      z: 4,
+    });
   }
 
   private uploadAvatar() {
@@ -910,14 +955,182 @@ export class LearningHall extends Component {
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result as string;
-        this.callbacks?.setAvatar('custom', dataUrl);
-        this.render('settings');
+        this.startCrop(dataUrl);
       };
       reader.readAsDataURL(file);
     };
     document.body.appendChild(input);
     input.click();
     setTimeout(() => { if (input.parentNode) input.parentNode.removeChild(input); }, 1000);
+  }
+
+  /** 选图后进入手动裁剪：显示原图 + 可拖动/缩放的正方形裁剪框 */
+  private startCrop(dataUrl: string) {
+    const img = new Image();
+    img.onload = () => {
+      this.cropSrc = dataUrl;
+      this.cropImgW = img.naturalWidth; this.cropImgH = img.naturalHeight;
+      const tex = new Texture2D();
+      tex.reset({ width: img.naturalWidth, height: img.naturalHeight });
+      tex.uploadData(img);
+      tex.setFilters(Texture2D.Filter.LINEAR, Texture2D.Filter.LINEAR);
+      const sf = new SpriteFrame();
+      sf.texture = tex; sf.rect = new Rect(0, 0, img.naturalWidth, img.naturalHeight);
+      this.cropSf = sf;
+      const fit = Math.min(this.cropArea / this.cropImgW, this.cropArea / this.cropImgH);
+      this.cropDispW = this.cropImgW * fit; this.cropDispH = this.cropImgH * fit;
+      const maxSize = Math.min(this.cropDispW, this.cropDispH);
+      this.cropBoxSize = Math.max(120, maxSize * 0.7);
+      this.cropBoxX = this.cropCenterX; this.cropBoxY = this.cropCenterY;
+      this.cropDragMode = 'none';
+      this.render('avatarCrop');
+    };
+    img.src = dataUrl;
+  }
+
+  /** 头像裁剪界面：原图 fit 居中 + 裁剪框（可拖动/缩放） + 取消/确认 */
+  private drawAvatarCrop() {
+    const root = this.createRoot('HallAvatarCrop', 'avatarCrop');
+    const t = this.theme(); const night = t.night;
+    const mask = this.graphics(root, 'HallCropMask', 0, 0, 1280, 720, 1);
+    mask.fillColor = new Color(0, 0, 0, 205); mask.rect(-640, -360, 1280, 720); mask.fill();
+    this.label(root, 'HallCropTitle', '调整头像', 0, 300, 400, 40, 22, t.ink, 'center', 6);
+    this.label(root, 'HallCropHint', '拖动方框选择区域，可缩放', 0, 270, 400, 24, 13, t.sub, 'center', 6);
+    const half = this.cropArea / 2;
+    const areaBg = this.graphics(root, 'HallCropArea', this.cropCenterX, this.cropCenterY, this.cropArea, this.cropArea, 2);
+    areaBg.fillColor = night ? new Color(20, 16, 12, 255) : new Color(38, 28, 18, 255);
+    areaBg.roundRect(-half, -half, this.cropArea, this.cropArea, 8); areaBg.fill();
+    areaBg.strokeColor = new Color(200, 160, 100, 220); areaBg.lineWidth = 2; areaBg.roundRect(-half + 1, -half + 1, this.cropArea - 2, this.cropArea - 2, 7); areaBg.stroke();
+    if (this.cropSf && this.cropSf.texture) {
+      const fit = Math.min(this.cropArea / this.cropImgW, this.cropArea / this.cropImgH);
+      const imgNode = new Node('HallCropImg'); imgNode.parent = root; imgNode.setPosition(this.cropCenterX, this.cropCenterY, 3);
+      imgNode.addComponent(UITransform).setContentSize(this.cropImgW, this.cropImgH);
+      imgNode.setScale(fit, fit, 1);
+      const sp = imgNode.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; sp.spriteFrame = this.cropSf;
+    }
+    const bx = this.cropBoxX, by = this.cropBoxY, s = this.cropBoxSize, h = s / 2;
+    const ax = this.cropCenterX, ay = this.cropCenterY;
+    const aw = this.cropDispW / 2, ah = this.cropDispH / 2;
+    const dark = new Color(0, 0, 0, 130);
+    const topH = (ay + ah) - (by + h);
+    const topBlk = this.graphics(root, 'HallCropDarkT', ax, (ay + ah + by + h) / 2, this.cropDispW, topH, 4);
+    topBlk.fillColor = dark; topBlk.rect(-aw, -topH / 2, this.cropDispW, topH); topBlk.fill();
+    const botH = (by - h) - (ay - ah);
+    const botBlk = this.graphics(root, 'HallCropDarkB', ax, (by - h + ay - ah) / 2, this.cropDispW, botH, 4);
+    botBlk.fillColor = dark; botBlk.rect(-aw, -botH / 2, this.cropDispW, botH); botBlk.fill();
+    const leftW = (bx - h) - (ax - aw);
+    const leftBlk = this.graphics(root, 'HallCropDarkL', (bx - h + ax - aw) / 2, by, leftW, s, 4);
+    leftBlk.fillColor = dark; leftBlk.rect(-leftW / 2, -h, leftW, s); leftBlk.fill();
+    const rightW = (ax + aw) - (bx + h);
+    const rightBlk = this.graphics(root, 'HallCropDarkR', (ax + aw + bx + h) / 2, by, rightW, s, 4);
+    rightBlk.fillColor = dark; rightBlk.rect(-rightW / 2, -h, rightW, s); rightBlk.fill();
+    const frame = this.graphics(root, 'HallCropFrame', bx, by, s, s, 5);
+    frame.strokeColor = new Color(231, 187, 97, 255); frame.lineWidth = 3; frame.roundRect(-h, -h, s, s, 4); frame.stroke();
+    const corner = new Color(231, 187, 97, 255); const cs = 14;
+    [[-h, h], [h, h], [-h, -h], [h, -h]].forEach(([cx, cy], i) => {
+      const c = this.graphics(root, `HallCropC${i}`, bx + cx, by + cy, cs, cs, 6);
+      c.fillColor = corner; c.roundRect(-cs / 2, -cs / 2, cs, cs, 3); c.fill();
+    });
+    const handle = this.graphics(root, 'HallCropHandle', bx + h, by - h, 28, 28, 6);
+    handle.fillColor = new Color(200, 62, 44, 255); handle.circle(0, 0, 13); handle.fill();
+    handle.strokeColor = new Color(255, 235, 200, 255); handle.lineWidth = 2; handle.circle(0, 0, 13); handle.stroke();
+    this.button(root, 'HallCropCancel', '取消', -110, -300, 120, 44, false);
+    this.button(root, 'HallCropConfirm', '确认裁剪', 110, -300, 140, 44, true);
+  }
+
+  /** 拖动 / 缩放裁剪框时只重画动态层（暗化 + 边框 + 角标 + 手柄），不重建整屏、不加 Sprite，保证拖动丝滑不卡顿 */
+  private updateCropOverlay() {
+    const root = this.root;
+    if (!root) return;
+    const bx = this.cropBoxX, by = this.cropBoxY, s = this.cropBoxSize, h = s / 2;
+    const ax = this.cropCenterX, ay = this.cropCenterY;
+    const aw = this.cropDispW / 2, ah = this.cropDispH / 2;
+    const dark = new Color(0, 0, 0, 130);
+    const blk = (name: string, x: number, y: number, w: number, hh: number) => {
+      const node = root.getChildByName(name); if (!node) return;
+      const g = node.getComponent(Graphics); if (!g) return;
+      g.clear(); g.fillColor = dark; g.rect(-w / 2, -hh / 2, w, hh); g.fill();
+      node.setPosition(x, y, 4);
+    };
+    blk('HallCropDarkT', ax, (ay + ah + by + h) / 2, this.cropDispW, Math.max(0, (ay + ah) - (by + h)));
+    blk('HallCropDarkB', ax, (by - h + ay - ah) / 2, this.cropDispW, Math.max(0, (by - h) - (ay - ah)));
+    blk('HallCropDarkL', (bx - h + ax - aw) / 2, by, Math.max(0, (bx - h) - (ax - aw)), s);
+    blk('HallCropDarkR', (ax + aw + bx + h) / 2, by, Math.max(0, (ax + aw) - (bx + h)), s);
+    const frame = root.getChildByName('HallCropFrame');
+    if (frame) {
+      const g = frame.getComponent(Graphics);
+      if (g) { g.clear(); g.strokeColor = new Color(231, 187, 97, 255); g.lineWidth = 3; g.roundRect(-h, -h, s, s, 4); g.stroke(); }
+      frame.setPosition(bx, by, 5);
+    }
+    const cornerPos: Array<[string, number, number]> = [['HallCropC0', -h, h], ['HallCropC1', h, h], ['HallCropC2', -h, -h], ['HallCropC3', h, -h]];
+    cornerPos.forEach(([name, cx, cy]) => { const n = root.getChildByName(name); if (n) n.setPosition(bx + cx, by + cy, 6); });
+    const handle = root.getChildByName('HallCropHandle');
+    if (handle) handle.setPosition(bx + h, by - h, 6);
+  }
+
+  /** 把裁剪框覆盖的原图区域裁成 1:1（输出 256x256）后保存 */
+  private doCropAndSave() {
+    const fit = Math.min(this.cropArea / this.cropImgW, this.cropArea / this.cropImgH);
+    const dispW = this.cropImgW * fit, dispH = this.cropImgH * fit;
+    const left = this.cropCenterX - dispW / 2;
+    const top = this.cropCenterY + dispH / 2;
+    const s = this.cropBoxSize;
+    let sx = ((this.cropBoxX - s / 2) - left) / fit;
+    let sy = (top - (this.cropBoxY + s / 2)) / fit;
+    let sw = s / fit; let sh = s / fit;
+    if (sx < 0) { sw += sx; sx = 0; }
+    if (sy < 0) { sh += sy; sy = 0; }
+    if (sx + sw > this.cropImgW) sw = this.cropImgW - sx;
+    if (sy + sh > this.cropImgH) sh = this.cropImgH - sy;
+    if (sw <= 2 || sh <= 2) { this.exitCrop(); return; }
+    const src = new Image();
+    src.onload = () => {
+      const cv = document.createElement('canvas'); cv.width = Math.round(sw); cv.height = Math.round(sh);
+      const ctx = cv.getContext('2d');
+      if (!ctx) { this.exitCrop(); return; }
+      ctx.drawImage(src, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+      const out = document.createElement('canvas'); out.width = 256; out.height = 256;
+      const octx = out.getContext('2d');
+      if (!octx) { this.exitCrop(); return; }
+      octx.drawImage(cv, 0, 0, cv.width, cv.height, 0, 0, 256, 256);
+      const dataUrl = out.toDataURL('image/png');
+      this.callbacks?.setAvatar('custom', dataUrl);
+      this.exitCrop();
+    };
+    src.src = this.cropSrc;
+  }
+
+  private exitCrop() {
+    this.cropSf = null; this.cropSrc = ''; this.cropDragMode = 'none';
+    this.cropDispW = 0; this.cropDispH = 0;
+    this.render('settings');
+  }
+
+  private onTouchMove(event: EventTouch) {
+    if (this.mode !== 'avatarCrop' || this.cropDragMode === 'none') return;
+    const point = event.getUILocation(); const size = view.getVisibleSize();
+    const x = point.x - size.width / 2; const y = point.y - size.height / 2;
+    if (this.cropDragMode === 'move') {
+      const dx = x - this.cropDragStartX, dy = y - this.cropDragStartY;
+      const limX = (this.cropDispW - this.cropBoxSize) / 2;
+      const limY = (this.cropDispH - this.cropBoxSize) / 2;
+      this.cropBoxX = Math.max(this.cropCenterX - limX, Math.min(this.cropCenterX + limX, this.cropBoxStartX + dx));
+      this.cropBoxY = Math.max(this.cropCenterY - limY, Math.min(this.cropCenterY + limY, this.cropBoxStartY + dy));
+      this.updateCropOverlay();
+    } else if (this.cropDragMode === 'scale') {
+      const dist = Math.hypot(x - this.cropBoxX, y - this.cropBoxY) * 2;
+      const maxSize = Math.min(this.cropDispW, this.cropDispH);
+      this.cropBoxSize = Math.max(80, Math.min(maxSize, dist));
+      const limX = (this.cropDispW - this.cropBoxSize) / 2;
+      const limY = (this.cropDispH - this.cropBoxSize) / 2;
+      this.cropBoxX = Math.max(this.cropCenterX - limX, Math.min(this.cropCenterX + limX, this.cropBoxX));
+      this.cropBoxY = Math.max(this.cropCenterY - limY, Math.min(this.cropCenterY + limY, this.cropBoxY));
+      this.updateCropOverlay();
+    }
+  }
+
+  private onTouchEnd() {
+    this.cropDragMode = 'none';
   }
 
   /** 设置页昵称展示行：点击后弹出编辑弹窗 */
@@ -946,38 +1159,60 @@ export class LearningHall extends Component {
     const ibg = this.graphics(root, 'HallNameDialogInputBg', 0, iy, iw, ih, 22);
     ibg.fillColor = t.night ? new Color(48, 40, 32, 255) : new Color(255, 255, 255, 255); ibg.roundRect(-iw / 2, -ih / 2, iw, ih, ih / 2); ibg.fill();
     ibg.strokeColor = new Color(200, 160, 100, 220); ibg.lineWidth = 2; ibg.roundRect(-iw / 2 + 1, -ih / 2 + 1, iw - 2, ih - 2, ih / 2 - 1); ibg.stroke();
-    // EditBox
-    const editNode = new Node('HallNameDialogEdit'); editNode.parent = root; editNode.setPosition(0, iy, 23);
-    editNode.addComponent(UITransform).setContentSize(iw - 20, ih - 10);
-    const edit = editNode.addComponent(EditBox) as EditBox;
-    edit.string = currentName;
-    edit.maxLength = 12;
-    edit.fontSize = 16;
-    edit.fontColor = t.night ? new Color(255, 245, 220) : new Color(60, 40, 20);
-    edit.placeholder = '输入昵称';
-    edit.placeholderFontSize = 14;
-    edit.placeholderFontColor = new Color(150, 130, 100, 180);
-    edit.inputMode = EditBox.InputMode.SINGLE_LINE;
-    const textColor = edit.fontColor;
-    if (edit.textLabel) {
-      const tl = edit.textLabel;
-      tl.fontSize = 16; tl.color = textColor; tl.lineHeight = 20;
-      tl.horizontalAlign = Label.HorizontalAlign.LEFT; tl.verticalAlign = Label.VerticalAlign.CENTER;
-      tl.overflow = Label.Overflow.CLAMP; tl.enableWrapText = false;
-      const tf = tl.node.getComponent(UITransform);
-      tf.setAnchorPoint(0, 0.5); tf.setContentSize(iw - 36, ih - 10); tl.node.setPosition(-(iw - 20) / 2 + 8, 0, 0);
-    }
-    if (edit.placeholderLabel) {
-      const pl = edit.placeholderLabel;
-      pl.fontSize = 14; pl.color = new Color(150, 130, 100, 180); pl.lineHeight = 18;
-      pl.horizontalAlign = Label.HorizontalAlign.LEFT; pl.verticalAlign = Label.VerticalAlign.CENTER;
-      pl.overflow = Label.Overflow.CLAMP; pl.enableWrapText = false;
-      const pf = pl.node.getComponent(UITransform);
-      pf.setAnchorPoint(0, 0.5); pf.setContentSize(iw - 36, ih - 10); pl.node.setPosition(-(iw - 20) / 2 + 8, 0, 0);
-    }
+    // 真正的 HTML input（替代 EditBox），自动弹系统键盘，支持拼音输入中文
+    this.removeNameInput();
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = 12;
+    input.value = currentName;
+    input.placeholder = '输入昵称';
+    const night = t.night;
+    input.style.position = 'fixed';
+    input.style.margin = '0';
+    input.style.padding = '0 8px';
+    input.style.border = 'none';
+    input.style.outline = 'none';
+    input.style.background = 'rgba(0,0,0,0)';
+    input.style.color = night ? '#fff5dc' : '#3c2814';
+    input.style.textAlign = 'center';
+    input.style.fontSize = `${Math.round(16 * this.viewportScale)}px`;
+    input.style.fontFamily = 'sans-serif';
+    input.style.boxSizing = 'border-box';
+    input.style.zIndex = '9999';
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    });
+    document.body.appendChild(input);
+    this.nameInputEl = input;
+    this.positionHtmlInput(input, 0, iy, iw, ih);
+    // 自动聚焦，强制弹出软键盘（学习机/平板）
+    setTimeout(() => { try { input.focus(); } catch (e) { /* ignore */ } }, 30);
     // 取消 / 保存按钮
     this.button(root, 'HallNameDialogCancel', '取消', -90, -58, 120, 40, false, 22);
     this.button(root, 'HallNameDialogSave', '保存', 90, -58, 120, 40, true, 22);
+  }
+
+  /** 把游戏内坐标(1280x720 中心原点)的输入框定位到屏幕像素，覆盖在游戏绘制框上 */
+  private positionHtmlInput(el: HTMLInputElement, gx: number, gy: number, gw: number, gh: number) {
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const px = (gx + 640) * this.viewportScale;
+    const py = (360 - gy) * this.viewportScale;
+    const left = rect.left + px - (gw * this.viewportScale) / 2;
+    const top = rect.top + py - (gh * this.viewportScale) / 2;
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    el.style.width = `${gw * this.viewportScale}px`;
+    el.style.height = `${gh * this.viewportScale}px`;
+  }
+
+  /** 移除昵称编辑用的 HTML input，避免残留 */
+  private removeNameInput() {
+    if (this.nameInputEl) {
+      if (this.nameInputEl.parentNode) this.nameInputEl.parentNode.removeChild(this.nameInputEl);
+      this.nameInputEl = null;
+    }
   }
 
   private drawToggle(root: Node, key: string, label: string, labelX: number, y: number, on: boolean, t: ReturnType<LearningHall['theme']>) {
@@ -1018,19 +1253,31 @@ export class LearningHall extends Component {
       if (this.hit(x, y, 0, -230, 220, 50)) { this.playSfx('back'); this.render('home'); }
       return;
     }
+    if (this.mode === 'avatarCrop') {
+      if (this.hit(x, y, -110, -300, 120, 44)) { this.playSfx('tap'); this.exitCrop(); return; }
+      if (this.hit(x, y, 110, -300, 140, 44)) { this.playSfx('confirm'); this.doCropAndSave(); return; }
+      const s = this.cropBoxSize, h = s / 2, bx = this.cropBoxX, by = this.cropBoxY;
+      if (this.hitCircle(x, y, bx + h, by - h, 20)) {
+        this.cropDragMode = 'scale'; this.cropDragStartX = x; this.cropDragStartY = y;
+        this.cropBoxStartX = bx; this.cropBoxStartY = by; this.cropBoxStartSize = s; return;
+      }
+      if (this.hit(x, y, bx, by, s, s)) {
+        this.cropDragMode = 'move'; this.cropDragStartX = x; this.cropDragStartY = y;
+        this.cropBoxStartX = bx; this.cropBoxStartY = by; this.cropBoxStartSize = s; return;
+      }
+      return;
+    }
     if (this.mode === 'settings') {
       if (this.nameDialogOpen) {
         // 点击弹窗面板外区域或取消 → 关闭
         if (!this.hit(x, y, 0, 0, 420, 200) || this.hit(x, y, -90, -58, 120, 40)) {
-          this.playSfx('tap'); this.nameDialogOpen = false; this.render('settings'); return;
+          this.playSfx('tap'); this.removeNameInput(); this.nameDialogOpen = false; this.render('settings'); return;
         }
         // 保存
         if (this.hit(x, y, 90, -58, 120, 40)) {
-          const editNode = this.root?.getChildByName('HallNameDialogEdit');
-          const edit = editNode?.getComponent(EditBox);
-          const newName = edit?.string?.trim() || '少年卜官';
+          const newName = (this.nameInputEl?.value ?? '').trim() || '少年卜官';
           this.callbacks?.setName(newName);
-          this.playSfx('confirm'); this.nameDialogOpen = false; this.render('settings'); return;
+          this.playSfx('confirm'); this.removeNameInput(); this.nameDialogOpen = false; this.render('settings'); return;
         }
         return;
       }
@@ -1250,13 +1497,68 @@ export class LearningHall extends Component {
     return label;
   }
 
+  /**
+   * 统一圆形头像：金边外框 + 浅暖白内底，上传图片/像素角色用 Mask 裁剪成圆形。
+   * 所有有头像的位置都走这里，保证风格一致。
+   */
+  private drawAvatar(
+    parent: Node, name: string, x: number, y: number, radius: number,
+    opts: {
+      url?: string;
+      emoji?: string;
+      spritePath?: string;
+      frameColor?: Color;
+      bgColor?: Color;
+      z?: number;
+      linear?: boolean;
+    } = {}
+  ) {
+    const z = opts.z ?? 5;
+    const frameColor = opts.frameColor ?? new Color(212, 167, 106, 255);
+    const bgColor = opts.bgColor ?? new Color(255, 248, 236, 255);
+    const innerR = radius - 3;
+    const imgR = innerR - 1;
+
+    const frame = this.graphics(parent, `${name}Frame`, x, y, radius * 2, radius * 2, z);
+    frame.fillColor = frameColor; frame.circle(0, 0, radius); frame.fill();
+    const bg = this.graphics(parent, `${name}Bg`, x, y, innerR * 2, innerR * 2, z + 1);
+    bg.fillColor = bgColor; bg.circle(0, 0, innerR); bg.fill();
+
+    if (opts.url) {
+      const maskNode = new Node(`${name}Mask`); maskNode.parent = parent; maskNode.setPosition(x, y, z + 2);
+      maskNode.addComponent(UITransform).setContentSize(imgR * 2, imgR * 2);
+      const mask = maskNode.addComponent(Mask);
+      mask.type = MaskType.GRAPHICS_ELLIPSE;
+      mask.segments = 64;
+      const imgNode = new Node(`${name}Img`); imgNode.parent = maskNode;
+      imgNode.addComponent(UITransform).setContentSize(imgR * 2, imgR * 2);
+      const sprite = imgNode.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      this.loadSpriteFrameFromDataUrl(opts.url, sprite);
+    } else if (opts.spritePath) {
+      const maskNode = new Node(`${name}Mask`); maskNode.parent = parent; maskNode.setPosition(x, y, z + 2);
+      maskNode.addComponent(UITransform).setContentSize(imgR * 2, imgR * 2);
+      const mask = maskNode.addComponent(Mask);
+      mask.type = MaskType.GRAPHICS_ELLIPSE;
+      mask.segments = 64;
+      const imgNode = new Node(`${name}Img`); imgNode.parent = maskNode;
+      imgNode.addComponent(UITransform).setContentSize(imgR * 2, imgR * 2);
+      const sprite = imgNode.addComponent(Sprite); sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+      this.loadSprite(opts.spritePath, imgNode, sprite, opts.linear ?? true);
+    } else if (opts.emoji) {
+      this.label(parent, `${name}Emoji`, opts.emoji, x, y, imgR * 1.6, imgR * 1.6, imgR * 1.1, new Color(100, 70, 40), 'center', z + 2);
+    }
+  }
+
   private panel(parent: Node, name: string, x: number, y: number, width: number, height: number, color: Color, parchment: boolean) {
     const panel = this.graphics(parent, name, x, y, width, height, 2); panel.fillColor = color; panel.roundRect(-width / 2, -height / 2, width, height, 16); panel.fill();
     panel.strokeColor = parchment ? new Color(91, 51, 31) : new Color(221, 167, 80); panel.lineWidth = 5; panel.roundRect(-width / 2 + 3, -height / 2 + 3, width - 6, height - 6, 12); panel.stroke();
   }
 
   private button(parent: Node, name: string, text: string, x: number, y: number, width: number, height: number, accent: boolean, z = 6) {
-    const button = this.graphics(parent, name, x, y, width, height, z - 1); button.fillColor = accent ? new Color(157, 64, 47, 245) : new Color(83, 62, 46, 245); button.roundRect(-width / 2, -height / 2, width, height, 10); button.fill();
+    const night = this.callbacks?.getProfile().nightMode ?? false;
+    const button = this.graphics(parent, name, x, y, width, height, z - 1);
+    button.fillColor = accent ? new Color(157, 64, 47, 245) : (night ? new Color(52, 56, 86, 245) : new Color(92, 70, 50, 245));
+    button.roundRect(-width / 2, -height / 2, width, height, 10); button.fill();
     button.strokeColor = new Color(231, 187, 97); button.lineWidth = 3; button.roundRect(-width / 2, -height / 2, width, height, 10); button.stroke();
     this.label(parent, `${name}Label`, text, x, y, width - 12, height - 8, 19, new Color(255, 238, 197), 'center', z);
   }
