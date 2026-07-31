@@ -188,20 +188,20 @@ const guidedStoryCardsFor = (chapterId: string) =>
     .slice(0, fixedGuidedCardIds(chapterId).length)
     .map(fragment => fragment.cardId)
     .filter((cardId): cardId is string => Boolean(cardId));
-const chapterRequiredCardIds = (chapterId: string): string[] => {
-  // 章完成门槛 = 本章「引导字」：金圈箭头带路、门控章完成。
-  // 自由探索字(main-free)按原设计「不门控章完成」：仍计入进度/可挖/图鉴，
-  // 但玩家自行寻找即可，不强制集齐才能进入下一章。
-  // 关键回归：advanceOptionalFragmentStep 对自由字会自动跳过且 correct:false（不写 learned flag），
-  // 若把自由字纳入门槛，章节将永远无法完成（全九章都会卡在末步、进不了下一章）。
-  // 这才是「之前可以现在不行」的根因——勿再改回引导+自由。
-  return guidedStoryCardsFor(chapterId);
+
+/**
+ * 本章全部主线字（引导字 + 自由探索字）的 id 列表，作为章节完成门槛。
+ * 必须与「进度统计」(chapterMainProgress) 和「自由探索坑」(prepareChapterFreeExploration)
+ * 使用同一数据源 CollectionPlan，否则会出现「门槛含了某张自由探索坑未开放的字」→
+ * 该字永远学不到 → completeCurrentChapter 永远阻塞 → 章卡死、占卜多次不进下一章。
+ * 故门槛直接由 CollectionPlan 全量主线字推导，与后两者天然一致。
+ */
+const allStoryMainCardIds = (chapterId: string): string[] => {
+  const plan = collectionPlanFor(chapterId);
+  if (!plan) return [];
+  return [...plan.guidedCardIds, ...plan.mainFreeCardIds];
 };
 
-const STORY_CHAPTERS_WITH_GUIDED_GATES = STORY_CHAPTER_DEFINITIONS.map(chapter => ({
-  ...chapter,
-  requiredCardIds: chapterRequiredCardIds(chapter.id),
-}));
 const GUIDED_STORY_CARD_IDS = new Set<string>(
   STORY_CHAPTER_DEFINITIONS.flatMap(chapter => guidedStoryCardsFor(chapter.id)),
 );
@@ -1901,11 +1901,16 @@ export class YinXuCity extends Component {
   }
 
   private initializeStoryInfrastructure() {
-    // 章节完成门槛（requiredCardIds）= 引导字（guidedStoryCardsFor），不含自由字。
-    // 自由字仍计入进度/可挖/图鉴，但按 CollectionPlan 原设计「不门控章完成」。
-    // ⚠️ 勿把自由字塞进门槛：advanceOptionalFragmentStep 对自由字自动跳过且 correct:false，
-    // 自由字永远学不到，塞进去会让全九章卡在末步、进不了下一章（2026-07-31 回归根因）。
-    this.storyController = new StoryController([...STORY_CHAPTERS_WITH_GUIDED_GATES], this.save.story, story => {
+    // 章节完成门槛（requiredCardIds）= 本章全部主线字（引导字 + 自由探索字）。
+    // 玩家必须把本章所有字都学会后，才能进入宗庙占卜、推进到下一章。
+    // 自由字通过 prepareChapterFreeExploration 开放的可挖坑学习，finishExcavationLearning
+    // 会调用 storyController.markCardLearned 写 learned-card flag，避免学不到而卡章。
+    const availableIds = new Set(this.oracleCards.map(card => card.id));
+    const storyChaptersWithRequirements = STORY_CHAPTER_DEFINITIONS.map(chapter => ({
+      ...chapter,
+      requiredCardIds: allStoryMainCardIds(chapter.id).filter(id => availableIds.has(id)),
+    }));
+    this.storyController = new StoryController(storyChaptersWithRequirements, this.save.story, story => {
       this.save.story = story;
       this.persistCitySave();
     });
@@ -2263,18 +2268,23 @@ export class YinXuCity extends Component {
         this.showStatusNotice('卜力已苏醒——在占卜席上挑选合适的甲骨，为求问的旅人占卜。', 4.8);
       } else if (step.completeOn === 'temple-entered') {
         this.showStatusNotice('循金色箭头前往宗庙内殿，为求问的旅人占卜。', 4.8);
-        // 治本：玩家从城外回宗庙占卜时，直接送入内殿并登记“入殿”，
-        // 避免被城墙/南门卡住、永远到不了宗庙祭台而卡死章节。
-        // enterTempleInterior 内部会先 handle('temple-entered') 再回调 presentStoryStep，
-        // 届时 currentStep 已变为 take-divination-seat，不会二次递归进殿。
-        // 注意：这里**不要**用 regionInputLocked 拦截黑屏切换途中的自动进殿。
-        // 一是外层有 lastGuidanceStepId 去重（每个 step 只进一次），一旦此处被拦下，
-        // 该步骤将永久不再触发自动进殿，直接复活「卡在 enter-temple」的老 bug；
-        // 二是玩家从挖字区走边界出口回城时，onRegionChanged 正是在黑屏中重放本步骤，
-        // 此刻进殿反而是期望行为——淡入时人已在殿内，衔接自然。
-        // 接章路径不受影响：各章首步都是「去找 NPC」，completeOn 不是 temple-entered。
-        if (this.worldMode === 'outside' && this.templeInterior?.isValid
+        // 自动进殿前，若本章字未集齐则不要强送进殿；等玩家补齐后再由 enterTempleInterior 门控处理。
+        const main = this.chapterMainProgress(step.chapterId);
+        if (main.total > 0 && main.learned < main.total) {
+          const missing = main.total - main.learned;
+          this.showStatusNotice(`本章甲骨尚未集齐。请先循金色箭头继续挖掘，收集并学会剩余 ${missing} 枚甲骨后再回宗庙占卜。`, 5);
+        } else if (this.worldMode === 'outside' && this.templeInterior?.isValid
           && this.overlay === 'none') {
+          // 治本：玩家从城外回宗庙占卜时，直接送入内殿并登记“入殿”，
+          // 避免被城墙/南门卡住、永远到不了宗庙祭台而卡死章节。
+          // enterTempleInterior 内部会先 handle('temple-entered') 再回调 presentStoryStep，
+          // 届时 currentStep 已变为 take-divination-seat，不会二次递归进殿。
+          // 注意：这里**不要**用 regionInputLocked 拦截黑屏切换途中的自动进殿。
+          // 一是外层有 lastGuidanceStepId 去重（每个 step 只进一次），一旦此处被拦下，
+          // 该步骤将永久不再触发自动进殿，直接复活「卡在 enter-temple」的老 bug；
+          // 二是玩家从挖字区走边界出口回城时，onRegionChanged 正是在黑屏中重放本步骤，
+          // 此刻进殿反而是期望行为——淡入时人已在殿内，衔接自然。
+          // 接章路径不受影响：各章首步都是「去找 NPC」，completeOn 不是 temple-entered。
           this.enterTempleInterior();
         }
       } else if (chId) {
@@ -2573,9 +2583,29 @@ export class YinXuCity extends Component {
 
   private completeStoryDialogue(step: StoryStepDefinition) {
     if (this.storyController?.currentStep()?.id !== step.id) return;
-    if (step.id.endsWith('fragment-awakens') && CHAPTER_CHALLENGES[step.chapterId]) {
-      this.tryOpenChapterChallenge(step.chapterId);
-      return;
+    // fragment-awakens 后必须集齐本章全部主线字，才推进到 first-request / 占卜。
+    // 引导字已齐但自由字未齐时：开放自由探索坑、尝试开启本章挑战，并提示继续收集。
+    if (step.id.endsWith('fragment-awakens')) {
+      const main = this.chapterMainProgress(step.chapterId);
+      const guided = this.chapterGuidedProgress(step.chapterId);
+      const allLearned = main.total > 0 && main.learned >= main.total;
+      const guidedLearned = guided.total > 0 && guided.learned >= guided.total;
+      if (!allLearned) {
+        if (guidedLearned) {
+          this.prepareChapterFreeExploration(step.chapterId);
+          this.tryOpenChapterChallenge(step.chapterId);
+          const freeRemaining = main.total - main.learned;
+          if (freeRemaining > 0) {
+            this.showStatusNotice(
+              `本章甲骨字已集齐。尚有 ${freeRemaining} 枚散落在附近；继续收集剩余甲骨字，方可回宗庙占卜。`,
+              5,
+            );
+          }
+        } else {
+          this.showChapterCollectionMilestone(step.chapterId);
+        }
+        return;
+      }
     }
     this.storyController?.handle({ type: 'dialogue-completed' });
     this.advanceToNextChapterIfNeeded();
@@ -2605,34 +2635,41 @@ export class YinXuCity extends Component {
   private chapterRequirementText(chapterId: string | null | undefined) {
     if (!chapterId) return '';
     const guided = this.chapterGuidedProgress(chapterId);
-    if (guided.total <= 0) return '';
-    const divinationNeed = Math.min(3, guided.total);
-    return `必要引导字：已挖 ${guided.collected}/${guided.total} · 已学 ${guided.learned}/${guided.total}　占卜需先挖 ${divinationNeed} 字`;
+    const main = this.chapterMainProgress(chapterId);
+    if (guided.total <= 0 || main.total <= 0) return '';
+    return `本章字：已挖 ${main.collected}/${main.total} · 已学 ${main.learned}/${main.total}`;
   }
 
-  /** 当本章引导字挖完/学完但还没推进到占卜时给出明确提示，避免玩家挖完不知道下一步该干嘛。 */
+  /** 当本章字收集进度变化时给出明确提示：甲骨字未集齐时循金色箭头挖掘；集齐并学会后回宗庙占卜。 */
   private showChapterCollectionMilestone(chapterId: string | undefined) {
     if (!chapterId) return;
     const snapshot = this.storyController?.snapshot();
     if (!snapshot || snapshot.completedChapterIds.includes(chapterId)) return;
-    // 以「引导字」为口径：自由探索字不门控章完成，只影响全盘收集。
     const guided = this.chapterGuidedProgress(chapterId);
-    if (guided.total <= 0) return;
-    const allCollected = guided.collected >= guided.total;
-    const allLearned = guided.learned >= guided.total;
-    if (allCollected && allLearned) {
+    const main = this.chapterMainProgress(chapterId);
+    if (guided.total <= 0 || main.total <= 0) return;
+    const guidedLearned = guided.learned >= guided.total;
+    const allCollected = main.collected >= main.total;
+    const allLearned = main.learned >= main.total;
+    if (allLearned) {
       this.showStatusNotice('本章甲骨皆已集齐并学会，回宗庙完成占卜，方能让本章功德圆满。', 5);
+    } else if (guidedLearned && main.learned < main.total) {
+      const freeMissing = main.total - main.learned;
+      this.showStatusNotice(
+        `本章甲骨字已集齐，尚有 ${freeMissing} 枚散落在附近；继续收集剩余甲骨字，方可回宗庙占卜。`,
+        5,
+      );
     } else if (allCollected) {
       const missing = guided.total - guided.learned;
-      this.showStatusNotice(`本章碎甲已集齐，尚有 ${missing} 个甲骨未学会；去辨认它们，再回宗庙占卜。`, 5);
+      this.showStatusNotice(`本章碎甲已集齐，尚有 ${missing} 个甲骨字未学会；去辨认它们，再继续收集剩余甲骨。`, 5);
     } else {
       const missing = guided.total - guided.collected;
-      this.showStatusNotice(`本章甲骨已收集 ${guided.collected}/${guided.total}，尚有 ${missing} 个未挖出；循金色箭头继续挖掘，集齐后回宗庙占卜。`, 5);
+      this.showStatusNotice(`本章甲骨已收集 ${guided.collected}/${guided.total}，尚有 ${missing} 个甲骨字未挖出；循金色箭头继续挖掘。`, 5);
     }
     // 引导字全部学会后：开放本章自由探索坑（含本章剩余主线字，供“全必挖”），
     // 并尝试开启本章挑战。此前不提前点亮全章坑，避免“满场可挖=全指引”观感。
     // 自由探索坑只含已完成章/当前章字，绝不含尚未到达的后续章字（见 getUnlockedStoryCardIds 门控）。
-    if (guided.learned >= guided.total && !snapshot.completedChapterIds.includes(chapterId)) {
+    if (guidedLearned && !snapshot.completedChapterIds.includes(chapterId)) {
       this.prepareChapterFreeExploration(chapterId);
       this.tryOpenChapterChallenge(chapterId);
     }
@@ -2648,7 +2685,7 @@ export class YinXuCity extends Component {
     if (guided.total > 0 && guided.learned < guided.total) {
       const missing = guided.total - guided.learned;
       this.showStatusNotice(
-        `本章骨纹已收集 ${guided.collected}/${guided.total}，已学会 ${guided.learned}/${guided.total}；还需学习 ${missing} 个引导字。`,
+        `本章骨纹已收集 ${guided.collected}/${guided.total}，已学会 ${guided.learned}/${guided.total}；还需学习 ${missing} 个甲骨字。`,
         5,
       );
       return false;
@@ -5421,6 +5458,16 @@ this.drawCityWallsAndGate();
 
   private enterTempleInterior() {
     if (this.overlay !== 'none' || this.worldMode !== 'outside' || !this.templeInterior?.isValid) return;
+    // fragment-awakens 后若本章字未集齐，禁止进入宗庙占卜；提示玩家先去自由探索。
+    const step = this.storyController?.currentStep();
+    if (step?.id.endsWith('fragment-awakens')) {
+      const main = this.chapterMainProgress(step.chapterId);
+      if (main.total > 0 && main.learned < main.total) {
+        const missing = main.total - main.learned;
+        this.showStatusNotice(`本章甲骨尚未集齐。请先循金色箭头继续挖掘，收集并学会剩余 ${missing} 枚甲骨后再回宗庙占卜。`, 5);
+        return;
+      }
+    }
     if (this.fishingCastEffect) this.cancelFishingCast('已收回鱼钩。', false);
     this.stopPlayerInput();
     this.worldMode = 'templeInterior';
@@ -9720,15 +9767,21 @@ this.drawCityWallsAndGate();
 
   private beginDivination() {
     if (this.worldMode !== 'templeInterior' || !this.templeInterior?.isValid) return;
-    // A new chapter must first contribute its own evidence. Test jumps carry
-    // earlier chapters' cards in the save, so without this gate a player
-    // could start Chapter 8 divination using only old words.
     const chapterId = this.storyController?.currentStep()?.chapterId;
     if (chapterId) {
-      const progress = this.chapterGuidedProgress(chapterId);
-      const required = Math.min(3, progress.total);
-      if (required > 0 && progress.collected < required) {
-        this.showStatusNotice(`本章尚未收集足够甲骨字。请先循金色箭头挖掘本章至少 ${required} 个引导字（当前 ${progress.collected}/${required}）。`, 4.5);
+      const main = this.chapterMainProgress(chapterId);
+      // 剧情已进入占卜链（fragment-awakens 之后 → first-request → 进殿 → 落座 → 连续占卜），
+      // 必须集齐本章全部甲骨字才能坐下占卜。
+      if (this.currentStepRequiresFullCollection() && main.total > 0 && main.learned < main.total) {
+        const missing = main.total - main.learned;
+        this.showStatusNotice(`本章甲骨尚未集齐。请先循金色箭头继续挖掘，收集并学会剩余 ${missing} 枚甲骨后再回宗庙占卜。`, 5);
+        return;
+      }
+      // 自由占卜（非剧情占卜链）的兜底：至少收集 3 个本章甲骨字，避免用旧章字跨章占卜。
+      const guided = this.chapterGuidedProgress(chapterId);
+      const required = Math.min(3, guided.total);
+      if (required > 0 && guided.collected < required) {
+        this.showStatusNotice(`本章尚未收集足够甲骨字。请先循金色箭头挖掘本章至少 ${required} 个甲骨字（当前 ${guided.collected}/${required}）。`, 4.5);
         return;
       }
     }
@@ -9830,8 +9883,25 @@ this.drawCityWallsAndGate();
     return step?.completeOn === 'divination-completed';
   }
 
+  /**
+   * 判断当前剧情步骤是否已经进入「必须集齐本章全部字才能进行」的占卜链。
+   * 包括：fragment-awakens 之后、first-request、进殿、落座、连续占卜轮、起身确认。
+   * 在这些步骤中若玩家还没集齐本章全部主线字，应禁止其坐下占卜或进入宗庙。
+   */
+  private currentStepRequiresFullCollection(): boolean {
+    const step = this.storyController?.currentStep();
+    if (!step) return false;
+    if (step.id.endsWith('fragment-awakens')) return true;
+    if (step.id.endsWith('first-request')) return true;
+    if (step.completeOn === 'temple-entered') return true;
+    if (step.completeOn === 'temple-seat-reached') return true;
+    if (step.completeOn === 'divination-completed') return true;
+    if (step.completeOn === 'result-confirmed') return true;
+    return false;
+  }
+
   private spawnNextSupplicant() {
-    const unlockedCount = this.save.unlockedOracleIds.filter(id => this.oracleCards.some(card => card.id === id && this.hasRealOracleGlyph(card))).length;
+    const unlockedCount = this.save.unlockedOracleIds.filter(id => this.oracleCards.some(card => card.id === id && (this.hasRealOracleGlyph(card) || Boolean(card.modern)))).length;
     if (unlockedCount < 3) {
       if (this.divinationText?.isValid) this.divinationText.string = '请先收集至少三枚甲骨文字，再开始三选一占卜。';
       return;
@@ -9984,9 +10054,9 @@ this.drawCityWallsAndGate();
     // must be a card the player has already excavated and learned to use.
     const answer = this.oracleCards.find(card => card.id === this.currentQuestion?.answerId
       && this.save.unlockedOracleIds.includes(card.id)
-      && this.hasRealOracleGlyph(card));
+      && (this.hasRealOracleGlyph(card) || Boolean(card.modern)));
     const wrongCandidates = this.oracleCards.filter(card => card.id !== answer?.id
-      && this.save.unlockedOracleIds.includes(card.id) && this.hasRealOracleGlyph(card));
+      && this.save.unlockedOracleIds.includes(card.id) && (this.hasRealOracleGlyph(card) || Boolean(card.modern)));
     if (!answer || wrongCandidates.length < 2) {
       if (this.divinationText?.isValid) this.divinationText.string = '甲骨数量不足，暂时无法组成三张不同的候选甲骨。';
       this.divinationStage = 'waiting';
@@ -10243,7 +10313,7 @@ this.drawCityWallsAndGate();
     this.oracleCardNodes = [];
     this.oracleCardHome = [];
     this.currentDivinationCards = [];
-    const card = this.oracleCards.find(item => item.id === this.currentQuestion?.answerId && this.hasRealOracleGlyph(item));
+    const card = this.oracleCards.find(item => item.id === this.currentQuestion?.answerId && (this.hasRealOracleGlyph(item) || Boolean(item.modern)));
     if (!card) return;
     const review = new Node('DivinationReviewPanel');
     review.parent = this.overlayRoot;
@@ -10273,6 +10343,22 @@ this.drawCityWallsAndGate();
     this.updateRiseButtonState();
   }
 
+  /**
+   * 从当前占卜步骤起，沿 nextStepId 链式统计「剩余卜算轮数」（含当前步），
+   * 直到遇到非 divination-completed 的步骤为止。用于占卜提示文案，
+   * 避免用 storyDivinationRounds 反推导致出现负数或错位的「X 卜未完成」。
+   */
+  private remainingDivinationRounds(): number {
+    let count = 0;
+    let step = this.storyController?.currentStep() ?? null;
+    while (step && step.completeOn === 'divination-completed') {
+      count++;
+      if (!step.nextStepId) break;
+      step = this.storyController?.stepById(step.nextStepId) ?? null;
+    }
+    return Math.max(0, count);
+  }
+
   private finishDivinationReview() {
     if (this.divinationStage !== 'review') return;
     const completedQuestion = this.currentQuestion;
@@ -10284,37 +10370,26 @@ this.drawCityWallsAndGate();
       }
     }
     // 判定「当前占卜步骤是否为占卜链的最后一轮」：其后续步骤的 completeOn 不再是
-    // 'divination-completed'（即下一步是「起身查看裂纹」）即代表占卜环节结束。
-    // 这样单轮占卜章（第一章 first-divination）一次占卜即完成；三轮占卜章（divination-1/2/3）
-    // 在第三轮一次性把整条占卜链推到「起身查看裂纹」——不再依赖脆弱的 rounds>=3 计数。
+    // 'divination-completed'（即下一步是「起身查看裂纹」）即代表占卜环节整体结束。
+    // 该标记仅用于在「末轮」才标记 storyAdvanced 以触发章完成副作用（线索/命力/音效）。
     const lastDivinationRound = storyRound
       ? !this.storyController?.stepIsDivination(this.storyController?.currentStep()?.nextStepId)
       : true;
     // 在 handle 推进步骤之前记录「刚完成的是哪一章的占卜」，用于线索标记与文案。
     const finishedChapterId = this.storyController?.currentStep()?.chapterId;
-    const storyAdvanced = lastDivinationRound
-      ? (() => {
-        let advanced = false;
-        let guard = 0;
-        while (
-          this.storyController?.currentStep()?.completeOn === 'divination-completed'
-          && guard++ < 8
-        ) {
-          const ok = this.storyController.handle({
-            type: 'divination-completed',
-            cardId: completedQuestion?.answerId,
-            npcId: completedQuestion?.villager,
-            correct: true,
-          });
-          if (!ok) break;
-          advanced = true;
-          // 推完当前占卜步骤后，若后续已不再是占卜步骤，立即停止：
-          // 单轮章一次即完成，三轮章末轮走完整条占卜链（到「起身查看裂纹」）。
-          if (!this.storyController?.stepIsDivination(this.storyController?.currentStep()?.nextStepId)) break;
-        }
-        return advanced;
-      })()
-      : false;
+    // 每一轮占卜完成都推进「当前这一轮」占卜步骤（divination-1→2→3→leave），
+    // 让占卜链严格按步前进；旧逻辑只在末轮才推进，导致 divination-1/2 永不推进、
+    // 玩家三轮都在重复第一轮、永远显示「第一次占卜 剩余两次」且不进章。
+    let storyAdvanced = false;
+    if (storyRound) {
+      const ok = this.storyController?.handle({
+        type: 'divination-completed',
+        cardId: completedQuestion?.answerId,
+        npcId: completedQuestion?.villager,
+        correct: true,
+      });
+      storyAdvanced = lastDivinationRound && ok === true;
+    }
     // 占卜结束若已触发章完成（currentChapterId 清空），兜底衔接下一章，
     // 与对话完成路径一致，确保小人被传送到下一章落点、绝不停留在上一章。
     this.advanceToNextChapterIfNeeded();
@@ -10350,10 +10425,11 @@ this.drawCityWallsAndGate();
     // handle 之后，若当前步骤仍是「占卜步骤」且本轮不是占卜链末轮，说明还有下一轮，
     // 保持 overlay 自动续接；否则（末轮）逼玩家起身查看裂纹。
     const stillDivining = this.isActiveDivinationStep() && !lastDivinationRound;
+    const remainingRounds = this.remainingDivinationRounds();
     this.overlayRoot?.getChildByName('DivinationReviewPanel')?.destroy();
     if (this.divinationText?.isValid) {
       this.divinationText.string = stillDivining
-        ? `第 ${this.storyDivinationRounds} 卜已记入兆纹。请留在占卜席，下一位村民马上前来（${3 - this.storyDivinationRounds} 卜未完成）。`
+        ? `本轮卜算已记入兆纹。请留在占卜席，下一位村民马上前来${remainingRounds > 1 ? `（尚余 ${Math.max(0, remainingRounds - 1)} 轮卜算）` : ''}。`
         : storyAdvanced
         ? ((finishedChapterId && chapterRiseTexts[finishedChapterId])
           || '“雨”字兆纹之外浮现出一道陌生裂纹，似乎正指向西侧河畔。请起身查看。')
@@ -10757,6 +10833,20 @@ this.drawCityWallsAndGate();
       item.lessonStepId === finishLessonStepId && item.cardId === card?.id);
     if (expectedLesson && card) {
       this.storyController?.handle({ type: 'learning-completed', cardId: card.id, correct: true });
+    } else if (card) {
+      // 自由探索字或无对应剧情步骤的字：直接标记为已学会，确保纳入本章完成门槛。
+      this.storyController?.markCardLearned(card.id);
+    }
+    // 若当前停在 fragment-awakens，且学完这张卡后本章全部字已齐，自动推进到占卜委托。
+    const chapterId = this.storyController?.currentStep()?.chapterId;
+    if (chapterId && finishLessonStepId?.endsWith('fragment-awakens')) {
+      const main = this.chapterMainProgress(chapterId);
+      if (main.total > 0 && main.learned >= main.total) {
+        this.storyController?.handle({ type: 'dialogue-completed' });
+        this.advanceToNextChapterIfNeeded();
+      } else {
+        this.showChapterCollectionMilestone(chapterId);
+      }
     }
     // 字已收入图鉴：让承载它的坑挖空并重置重生计时。下一帧 updateExcavationEffects
     // 会把它移走并重新 roll 一个未收集字，保证有限的坑位能轮替覆盖本章所有主线字。
@@ -10868,15 +10958,29 @@ this.drawCityWallsAndGate();
         ? { title: '第二章完成', detail: '河畔的计数碎甲已经重新回应你。' }
         : { title: '第一章完成', detail: '失语的甲骨已经重新回应你，第二章尚未开启。' };
     }
-    // 以引导字为可见进度口径：自由探索字不门控本章流程，只影响全盘收集。
+    // fragment-awakens 后需集齐本章全部甲骨字才进占卜。
     if (chapterId && stepId?.endsWith('fragment-awakens')) {
-      const progress = this.chapterGuidedProgress(chapterId);
-      if (progress.learned < progress.total) {
+      const guided = this.chapterGuidedProgress(chapterId);
+      const main = this.chapterMainProgress(chapterId);
+      if (guided.learned < guided.total) {
         return {
           title: '整理本章骨纹',
-          detail: `已挖到 ${progress.collected}/${progress.total}，已学 ${progress.learned}/${progress.total}。继续循金色箭头挖掘并学习剩余引导字，收齐后即可完成章节挑战。`,
+          detail: `已挖到 ${guided.collected}/${guided.total}，已学 ${guided.learned}/${guided.total}。继续循金色箭头挖掘并学习剩余甲骨字。`,
         };
       }
+      if (main.learned < main.total) {
+        const freeMissing = main.total - main.learned;
+        if (freeMissing > 0) {
+          return {
+            title: '继续收集剩余甲骨字',
+            detail: `本章甲骨字已集齐，尚有 ${freeMissing} 枚散落在附近，收集全部后方可回宗庙占卜。`,
+          };
+        }
+      }
+      return {
+        title: '回宗庙完成占卜',
+        detail: '本章甲骨已全部集齐并学会，返回宗庙完成占卜，即可让本章功德圆满。',
+      };
     }
     const step = this.storyController?.currentStep();
     if (step?.objective) {
@@ -10968,15 +11072,15 @@ this.drawCityWallsAndGate();
 
     const completed = (snapshot?.completedChapterIds.indexOf(currentChapterId) ?? -1) >= 0;
     const stepId = snapshot?.currentStepId ?? null;
-    // 章节进度只按「必要引导字」计算：自由探索字计入全盘收集，但不门控本章完成，
-    // 避免玩家刚接章就看到 69% 或自由字没挖完永远到不了 85%。
+    // 章节进度按「本章全部主线字」计算：必须全部学会才能进占卜，
+    // 因此进度条以已学字数为主，剧情推进为辅。
     const guided = this.chapterGuidedProgress(currentChapterId);
     const collection = this.chapterMainProgress(currentChapterId);
     const storyRatio = this.storyController?.currentStepProgress(currentChapterId) ?? 0;
-    const guidedRatio = guided.collected / Math.max(1, guided.total);
+    const mainRatio = collection.learned / Math.max(1, collection.total);
     const chapterPercent = completed
       ? 100
-      : Math.min(85, Math.round(guidedRatio * 65 + storyRatio * 20));
+      : Math.min(90, Math.round(mainRatio * 70 + storyRatio * 20));
 
     // Keep every chapter-act title inside the 920 px panel: the label's left
     // edge is inset 36 px from the panel edge, regardless of its text length.
@@ -11012,11 +11116,11 @@ this.drawCityWallsAndGate();
     const allCollected = storyCollected + supplementCollected;
     const allTotal = storyTotal + supplementTotal;
     const summaryLabel = this.createUiLabel(root, 'ChapterCollectionSummary',
-      `必要引导字 已挖${guided.collected}/${guided.total}·已学${guided.learned}/${guided.total}　本章字 已挖${collection.collected}/${collection.total}·已学${collection.learned}/${collection.total}`,
+      `本章字 已挖${collection.collected}/${collection.total}·已学${collection.learned}/${collection.total}`,
       0, -234, 760, 34, 16, new Color(247, 217, 154));
     summaryLabel.overflow = Label.Overflow.SHRINK;
     summaryLabel.enableWrapText = false;
-    this.createUiLabel(root, 'ChapterProgressHint', `本章 ${guided.total} 个引导字集齐并学会后方可占卜；其余主线字与甲骨拾遗可在自由探索继续收集（计入全盘进度）。占卜前至少挖掘本章 ${Math.min(3, guided.total)} 字。`,
+    this.createUiLabel(root, 'ChapterProgressHint', `本章全部 ${collection.total} 个甲骨字由金色箭头带路，集齐并学会后方可回宗庙占卜。`,
       0, -256, 760, 22, 13, new Color(207, 186, 148));
     const globalLabel = this.createUiLabel(root, 'ChapterGlobalCollection',
       `全盘甲骨收集 已挖${allCollected}/${allTotal}　主线 ${storyCollected}/${storyTotal} · 拾遗 ${supplementCollected}/${supplementTotal}`,
