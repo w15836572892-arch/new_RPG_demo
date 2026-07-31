@@ -7,7 +7,12 @@ import { CHAPTER_CHAR_PLANS, SUPPLEMENT_CHARS, ChapterCharPlan } from './Chapter
  */
 export type CharacterCollectionLayer = 'guided' | 'main-free' | 'relic';
 
-const GUIDED_COUNTS = [3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
+// 引导字（金圈箭头带路、门控章完成）= 独立的递增规律，从章一 3 起每章 +1。
+// 与每章主线「收集总字数」(5/12/19/26/26/32/38/44/48) 是两回事：引导字只取每章前 N 个，
+// 剩余 = 自由探索字(main-free)，靠玩家自行寻找、不引导、不门控章完成。
+// 第1章教学锁死 5 字（雨田水土地云），宝宝要求五字全引导，故首章引导数取到 5；
+// 其余章沿用「引导字金圈带路 + 自由字自行探索」的模板设计（自由字不门控章完成）。
+const GUIDED_COUNTS = [5, 4, 5, 6, 7, 8, 9, 10, 11] as const;
 
 export type ChapterCollectionPlan = {
   chapterId: string;
@@ -40,17 +45,8 @@ export const MAIN_STORY_CARD_IDS = CHAPTER_COLLECTION_PLANS.flatMap(plan => [
 // 仓库总字池 = 之前的字 + 补充卡字，剧情基于仓库所有字推进，但不把 152 当拾遗。
 export const RELIC_CARD_IDS = SUPPLEMENT_CHARS.map(cardIdFor);
 
-// The original story files use these two corrected ids while the historical
-// character table kept its earlier roadmap ids. Keep the data compatible
-// instead of duplicating the 300-character list.
-const LEGACY_PLAN_ID: Record<string, string> = {
-  'chapter-7-wrong-scroll': 'chapter-7-wrong-scrolls',
-  'chapter-8-tomb-three-proofs': 'chapter-8-royal-tombs',
-};
-
 export function collectionPlanFor(chapterId: string) {
-  const planId = LEGACY_PLAN_ID[chapterId] ?? chapterId;
-  return CHAPTER_COLLECTION_PLANS.find(plan => plan.chapterId === planId) ?? null;
+  return CHAPTER_COLLECTION_PLANS.find(plan => plan.chapterId === chapterId) ?? null;
 }
 
 export function fixedGuidedCardIds(chapterId: string) {
@@ -62,7 +58,7 @@ export function fixedGuidedCardIds(chapterId: string) {
   const guided = plans.reduce((total, plan) => total + plan.guidedCardIds.length, 0);
   const main = plans.reduce((total, plan) => total + plan.guidedCardIds.length + plan.mainFreeCardIds.length, 0);
   const relic = RELIC_CARD_IDS.length;
-  console.assert(guided === 63, `[CollectionPlan] guided count: ${guided}`);
+  console.assert(guided === 65, `[CollectionPlan] guided count: ${guided}`);
   console.assert(main === 250, `[CollectionPlan] main count: ${main}`);
   console.assert(relic === 50, `[CollectionPlan] relic count: ${relic}`);
 })();

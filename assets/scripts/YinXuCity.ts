@@ -33,7 +33,7 @@ import { RegionTransitionManager } from './regions/RegionTransitionManager';
 import { RegionEntry, RegionExit, RegionId } from './regions/RegionTypes';
 import { LocalSaveDatabase } from './storage/LocalSaveDatabase';
 import { GameAudioManager } from './GameAudioManager';
-import { importedOracleCards } from './data/ImportedOracleCatalog';
+import { importedOracleCards, RAW_CATALOG_PINYIN, makeLesson } from './data/ImportedOracleCatalog';
 import { supplementalOracleCards } from './data/SupplementalOracleCatalog';
 import { buildDivinationQuestions } from './data/DivinationQuestionBank';
 import { DialoguePanel } from './story/DialoguePanel';
@@ -88,7 +88,7 @@ import {
 } from './story/ChapterNine';
 import { migrateStorySave } from './story/StoryState';
 import { DialogueLine, StoryObjective, StorySaveState, StoryStepDefinition } from './story/StoryTypes';
-import { CHAPTER_CHAR_PLANS } from './story/ChapterCharMap';
+import { CHAPTER_CHAR_PLANS, SUPPLEMENT_CHARS } from './story/ChapterCharMap';
 import { collectionPlanFor, fixedGuidedCardIds, MAIN_STORY_CARD_IDS, RELIC_CARD_IDS } from './story/CollectionPlan';
 
 // 主线/拾遗字 id 集合（基于 ChapterCharMap：主线 250 = 9 章 PLANS，拾遗 50 = SUPPLEMENT_CHARS）
@@ -98,6 +98,39 @@ function planCardId(entry: { char: string; existingCardId: string | null }): str
 }
 const STORY_CARD_IDS = new Set<string>(MAIN_STORY_CARD_IDS);
 const SUPPLEMENT_CARD_IDS = new Set<string>(RELIC_CARD_IDS);
+
+// 为 ChapterCharMap 的 300 字目标表（9 章主线 250 + 拾遗 50）中「尚无手录卡面」的字
+// 生成占位卡：id 用 planCardId（existingCardId ?? catalog-u{unicode}），拼音取自 RAW_CATALOG，
+// 释义用 makeLesson 通用文案，asset 指向 catalog/ob-u{unicode}（本机若有对应甲骨图则显示，
+// 缺失则由 createOracleGlyphVisual 的加载失败回退到现代字）。带 excavatable:true，使其进入
+// 挖掘候选池与图鉴全集。最终在 oracleCards 初始化处按 id 去重，优先保留已有真实字形的卡。
+function generatePlannedMissingCards(): OracleCardData[] {
+  const plans: { char: string; existingCardId: string | null }[] = [
+    ...CHAPTER_CHAR_PLANS.flatMap(plan => plan.chars),
+    ...SUPPLEMENT_CHARS,
+  ];
+  const cards: OracleCardData[] = [];
+  for (const entry of plans) {
+    const id = planCardId(entry);
+    const unicode = entry.char.codePointAt(0)!.toString(16);
+    const pinyin = RAW_CATALOG_PINYIN.get(entry.char) ?? '';
+    const lesson = makeLesson(entry.char);
+    cards.push({
+      id,
+      glyph: entry.char,
+      modern: entry.char,
+      pinyin,
+      quality: 'blue',
+      asset: `catalog/ob-u${unicode}`,
+      imageBounds: [0, 0, 200, 200] as [number, number, number, number],
+      excavatable: true,
+      meaning: lesson.meaning,
+      evolution: lesson.evolution,
+      history: lesson.history,
+    });
+  }
+  return cards;
+}
 // Keep chapter-jump controls available while the current local build is under
 // test. Switch this back to false before packaging the player build.
 const SHOW_STORY_TEST_BUTTONS = true;
@@ -155,11 +188,19 @@ const guidedStoryCardsFor = (chapterId: string) =>
     .slice(0, fixedGuidedCardIds(chapterId).length)
     .map(fragment => fragment.cardId)
     .filter((cardId): cardId is string => Boolean(cardId));
+const chapterRequiredCardIds = (chapterId: string): string[] => {
+  // 章完成门槛 = 本章「引导字」：金圈箭头带路、门控章完成。
+  // 自由探索字(main-free)按原设计「不门控章完成」：仍计入进度/可挖/图鉴，
+  // 但玩家自行寻找即可，不强制集齐才能进入下一章。
+  // 关键回归：advanceOptionalFragmentStep 对自由字会自动跳过且 correct:false（不写 learned flag），
+  // 若把自由字纳入门槛，章节将永远无法完成（全九章都会卡在末步、进不了下一章）。
+  // 这才是「之前可以现在不行」的根因——勿再改回引导+自由。
+  return guidedStoryCardsFor(chapterId);
+};
+
 const STORY_CHAPTERS_WITH_GUIDED_GATES = STORY_CHAPTER_DEFINITIONS.map(chapter => ({
   ...chapter,
-  // The original chapter scripts own the actual card ids used by excavation.
-  // Use their first N entries so the gate always agrees with the story route.
-  requiredCardIds: guidedStoryCardsFor(chapter.id),
+  requiredCardIds: chapterRequiredCardIds(chapter.id),
 }));
 const GUIDED_STORY_CARD_IDS = new Set<string>(
   STORY_CHAPTER_DEFINITIONS.flatMap(chapter => guidedStoryCardsFor(chapter.id)),
@@ -562,7 +603,13 @@ export class YinXuCity extends Component {
     upperCommitY: -218,
     lowerCommitY: -410,
   };
-  private readonly lakeRegion = { left: -1600, right: -480, bottom: -1980, top: -1120 };
+  // 湖湾区收紧到 OUTSKIRTS 城南可达荒地带：bottom/top 必须落在 OUTSKIRTS 可达区
+  // (currentWorldBounds minY=-960) 之内，否则 resolveExcavationPosition 会把 lake 坑 seed
+  // 的 y clamp 回南墙死区(y<-960)，导致"指针往返死循环"。top 也须 < CITY 南边界(-240)，
+  // 避免 lake 坑被误判进城内(CITY)而与 mapRegion=OUTSKIRTS 不一致。
+  // left/right 同时收紧在 OUTSKIRTS 可达范围内(minX=-1240, maxX=1240)，防止 x<-1240
+  // 的 seed 落入城西空白死区。
+  private readonly lakeRegion = { left: -1180, right: -520, bottom: -960, top: -300 };
   private readonly fieldRegion = { left: 140, right: 3000, bottom: -2200, top: -400 };
   private readonly mountainRegion = { left: 3000, right: 5700, bottom: -2200, top: -400 };
   private readonly tombRegion = { left: 600, right: 5200, bottom: -4100, top: -2450 };
@@ -584,6 +631,8 @@ export class YinXuCity extends Component {
     },
   } as const;
   private readonly forestRegion = { left: 3150, right: 5600, bottom: -2100, top: -500 };
+  // 同一次刷新周期内已分配出去的主线字，防止多个坑在同一帧重生时抽到同一个字（重复字）。
+  private readonly excavationRollingReserved: Set<string> = new Set<string>();
   // 拾遗专属挖掘区：覆盖整张可行走地图的陆地，散布广、彼此稀疏；门控：主线完成后才解锁。
   private readonly supplementRegion = { left: -5850, right: 5500, bottom: -3950, top: -380 };
 
@@ -667,6 +716,7 @@ export class YinXuCity extends Component {
   private horseCarts: HorseCart[] = [];
   private frameCache = new Map<string, SpriteFrame>();
   private frameWaiters = new Map<string, Array<(frame: SpriteFrame) => void>>();
+  private frameErrorWaiters = new Map<string, Array<() => void>>();
   private excavationFrames: Record<ExcavationVisualState, SpriteFrame | null> = { idle: null, dug: null };
   private excavationFramesRequested = false;
   private playerFrames: Record<Facing, Array<SpriteFrame | null>> = {
@@ -690,10 +740,11 @@ export class YinXuCity extends Component {
   private readonly saveKey = 'yinxu-city-save-v1';
   private readonly localSaveDatabase = new LocalSaveDatabase('yinxu-city-local-db', 'saves');
   private readonly divinationInkCost = 4;
-  // TEST ONLY: set to false or remove this line and the two preview branches below.
-  // It affects only the 图鉴 display and never writes unlocked cards into the player's save data.
-  private readonly unlockAllCatalogForPreview = true;
-  private readonly oracleCards: OracleCardData[] = [
+  // 图鉴显示模式：false = 正式体验，只展示已挖掘/解锁的甲骨（未挖到的不进图鉴，不显示灰格）；
+  // true = 仅供调试预览全集（所有字都标为已解锁）。它只影响图鉴展示，绝不把未解锁字写进存档。
+  private readonly unlockAllCatalogForPreview = false;
+  private readonly oracleCards: OracleCardData[] = (() => {
+    const raw = [
     { id: 'catalog-u65f6', glyph: '时', modern: '时', pinyin: 'shí', quality: 'blue', meaning: '表示时间、时辰，与昼夜更替和农时安排有关。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代以干支与时段记录事件，时间观念服务于祭祀、农事与出行。' },
     { id: 'catalog-u5206', glyph: '分', modern: '分', pinyin: 'fēn', quality: 'blue', asset: 'catalog/ob-u5206', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示划分、分开，与时间单位和分配有关。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代历法以分段记时，分用于安排农事与祭祀。' },
     { id: 'catalog-u523b', glyph: '刻', modern: '刻', pinyin: 'kè', quality: 'blue', asset: 'catalog/ob-u523b', imageBounds: [0, 0, 200, 200], excavatable: true, meaning: '表示雕刻、刻度，也用于记时。', evolution: '占位字形将在正式甲骨资料到位后替换；交互、题库和学习记录无需重写。', history: '商代在龟甲兽骨上契刻卜辞，刻是文字留存的方式。' },
@@ -1173,30 +1224,28 @@ export class YinXuCity extends Component {
     },
     ...importedOracleCards,
     ...supplementalOracleCards,
-].map(card => ({
+    ...generatePlannedMissingCards(),
+  ];
+  // 按 id 去重：优先保留「有真实字形图(asset)」的卡（手写特殊卡 / imported 真实卡），
+  // 无图占位卡（手写占位或本次生成的占位）仅在无更优版本时保留，确保待补字也能进入全集。
+  const byId = new Map<string, (typeof raw)[number]>();
+  for (const card of raw) {
+    const existing = byId.get(card.id);
+    if (!existing || (!existing.asset && card.asset)) byId.set(card.id, card);
+  }
+  return [...byId.values()];
+})().map(card => ({
     ...card,
     quality: card.quality as OracleQuality,
     imageBounds: card.imageBounds as OracleCardData['imageBounds'],
     ...(ORACLE_GLYPH_ASSET_OVERRIDES[card.id] ?? {}),
-})).filter((card, index, all) => {
-    // 导入字库与内置字卡存在大量同 id/同现代字的重复项。
-    // 图鉴只保留一个，并优先留下已填好释义的版本，避免占位卡挤掉完整资料。
-    const isPlaceholder = (c: OracleCardData) =>
-      (c.meaning ?? '').includes('待正式甲骨资料')
-      || (c.meaning ?? '').includes('待补充')
-      || (c.history ?? '') === '待补充。'
-      || (c.evolution ?? '').includes('占位字形');
-    const bestIndex = all.reduce((best, candidate, candidateIndex) => {
-      if (candidate.id !== card.id && candidate.modern !== card.modern) return best;
-      if (best === -1) return candidateIndex;
-      const bestPlaceholder = isPlaceholder(all[best]);
-      const candidatePlaceholder = isPlaceholder(candidate);
-      if (bestPlaceholder && !candidatePlaceholder) return candidateIndex;
-      if (!bestPlaceholder && candidatePlaceholder) return best;
-      return best;
-    }, -1);
-    return bestIndex === index;
-});
+  }));
+  // ⚠️ 不要在 oracleCards 本体上按「现代字」去重（上游曾在此加过一层 filter，合并时已剔除）。
+  // oracleCards 是运行时数据源：挖掘池、题库、字表校验(validIds)、存档解锁 id 都依赖它。
+  // 实测按现代字去重会删掉 5 张被字表引用的卡（catalog-u571f 土 / u6c34 水 / u6708 月 /
+  // u6728 木 / u7940 祀），转而保留不在字表里的 legacy 卡（earth-temp 等），
+  // 导致第一章 5 字塌成 3 字、第二章缺「木」、第四章缺「月」、拾遗缺「祀」。
+  // 「图鉴不出现重复字」的诉求已在展示层 getCards 的去重中实现，无需动本体。
   private readonly divinationQuestions: DivinationQuestion[] = buildDivinationQuestions(
     this.oracleCards.filter(card => this.hasRealOracleGlyph(card)),
   );
@@ -1362,17 +1411,28 @@ export class YinXuCity extends Component {
     this.learningHall = this.node.addComponent(LearningHall);
     this.learningHall.initialize({
       getCards: () => {
-        const discoveryOrder = this.unlockAllCatalogForPreview
+        const isPreview = this.unlockAllCatalogForPreview;
+        const discoveryOrder = isPreview
           ? this.oracleCards.filter(card => this.hasRealOracleGlyph(card)).map(card => card.id)
           : this.save.unlockedOracleIds;
-        return this.oracleCards
-          .filter(card => this.hasRealOracleGlyph(card)
-            && !CATALOG_HIDDEN_LEGACY_DUPLICATE_IDS.has(card.id)
-            && (!card.catalogOnlyWhenUnlocked || discoveryOrder.includes(card.id)))
-          .filter((card, index, all) => {
-            const modern = this.oracleModernCharacter(card);
-            return all.findIndex(candidate => this.oracleModernCharacter(candidate) === modern) === index;
-          })
+        // 图鉴始终返回全部带图卡（含未挖掘的待补字占位卡）；未解锁的由图鉴 UI 渲染成
+        // 「尚未发现 / ？」占位格，已挖掘的显示真字形。preview 模式则全部标为已解锁，仅供调试。
+        const catalogPool = this.oracleCards.filter(card => this.hasRealOracleGlyph(card)
+          && !CATALOG_HIDDEN_LEGACY_DUPLICATE_IDS.has(card.id));
+        // 展示层按现代字去重，避免图鉴出现重复字格（来自上游）。
+        // 同字多卡时的取舍优先级（避免「已挖到却显示未解锁」，也保证字表卡不被 legacy 卡挤掉）：
+        //   ① 玩家已解锁的那张 → ② 字表（主线/拾遗）内的那张 → ③ 先出现的那张。
+        const unlockedIds = new Set(discoveryOrder);
+        const rankOf = (card: (typeof catalogPool)[number]) => (unlockedIds.has(card.id) ? 2 : 0)
+          + ((STORY_CARD_IDS.has(card.id) || SUPPLEMENT_CARD_IDS.has(card.id)) ? 1 : 0);
+        const keptByModern = new Map<string, (typeof catalogPool)[number]>();
+        for (const card of catalogPool) {
+          const modern = this.oracleModernCharacter(card);
+          const kept = keptByModern.get(modern);
+          if (!kept || rankOf(card) > rankOf(kept)) keptByModern.set(modern, card);
+        }
+        return catalogPool
+          .filter(card => keptByModern.get(this.oracleModernCharacter(card)) === card)
           .map(card => ({
             id: card.id, glyph: card.glyph, modern: this.oracleModernCharacter(card), pinyin: card.pinyin,
             quality: card.quality, meaning: card.meaning, evolution: this.learningEvolution(card), history: card.history,
@@ -1508,6 +1568,8 @@ export class YinXuCity extends Component {
         // sequence. Once the final one is learned, reopen the pending chapter
         // challenge instead of leaving the player at an invisible gate.
         if (correct) {
+          const chapterId = this.storyController?.snapshot().currentChapterId;
+          this.showChapterCollectionMilestone(chapterId);
           const step = this.storyController?.currentStep();
           if (step?.id.endsWith('fragment-awakens') && CHAPTER_CHALLENGES[step.chapterId]) {
             this.tryOpenChapterChallenge(step.chapterId);
@@ -1658,6 +1720,10 @@ export class YinXuCity extends Component {
       getPlayerFootPosition: () => this.playerPos,
       getPlayerFacing: () => this.facing,
       setPlayerPosition: position => {
+        // 落点提交保险：黑屏是异步的（fadeOut 0.22s），期间玩家仍可能处于宗庙内殿
+        // （节点挂在 templeInterior 下、world 隐藏、相机冻结）。此时直接写世界坐标
+        // 会导致「画面停在上一章、小人消失」，故提交前强制归位到外部 world。
+        this.restoreOutsideWorldForScriptedTravel();
         this.playerPos.set(position.x, position.y);
         this.player.setPosition(position.x, position.y, 80);
         this.updateTerrainElevationState(true);
@@ -1835,6 +1901,10 @@ export class YinXuCity extends Component {
   }
 
   private initializeStoryInfrastructure() {
+    // 章节完成门槛（requiredCardIds）= 引导字（guidedStoryCardsFor），不含自由字。
+    // 自由字仍计入进度/可挖/图鉴，但按 CollectionPlan 原设计「不门控章完成」。
+    // ⚠️ 勿把自由字塞进门槛：advanceOptionalFragmentStep 对自由字自动跳过且 correct:false，
+    // 自由字永远学不到，塞进去会让全九章卡在末步、进不了下一章（2026-07-31 回归根因）。
     this.storyController = new StoryController([...STORY_CHAPTERS_WITH_GUIDED_GATES], this.save.story, story => {
       this.save.story = story;
       this.persistCitySave();
@@ -1861,57 +1931,20 @@ export class YinXuCity extends Component {
       this.presentStoryStep(this.storyController.currentStep());
       return;
     }
-    if (!snapshot.completedChapterIds.includes(CHAPTER_ONE_ID)) {
-      this.storyController.startChapter(CHAPTER_ONE_ID);
-      this.goToStoryLocation('chapter-1-city-entry');
+    // 找到第一个未完成的章节，先把它传送落到该章落点，再开章。
+    // 顺序很关键：goToStoryLocation（先传送）先发生；即便随后的开场对话展示异常，
+    // 小人也已经可靠落到下一章落点，绝不会停在上一章、人错位丢失。
+    const nextChapterId = STORY_CHAPTER_IDS.find(id => !snapshot.completedChapterIds.includes(id));
+    if (!nextChapterId) {
+      this.presentStoryStep(this.storyController.currentStep());
       return;
     }
-    if (!snapshot.completedChapterIds.includes(CHAPTER_TWO_ID)) {
-      this.storyController.startChapter(CHAPTER_TWO_ID);
-      // 第二章：玩家直接传送到渔娘阿潍身旁，避免自行跋涉 4600 像素却找不到人
-      this.goToStoryLocation('chapter-2-riverbank-entry');
-      return;
+    const chapterNumber = (STORY_CHAPTER_IDS.indexOf(nextChapterId) + 1) as StoryTestChapter;
+    const start = STORY_TEST_STARTS[chapterNumber];
+    if (start) {
+      this.goToStoryLocation(start.storyLocationId);
     }
-    if (!snapshot.completedChapterIds.includes(CHAPTER_THREE_ID)) {
-      this.storyController.startChapter(CHAPTER_THREE_ID);
-      // 第三章：玩家直接传送到守峡人阿沚身旁（右边 80px，明确落在 200 触发半径内），
-      // 放完开场对话即自动触发，无需自行走位找人。
-      this.goToStoryLocation('chapter-3-royal-tomb-entry');
-      return;
-    }
-    if (!snapshot.completedChapterIds.includes(CHAPTER_FOUR_ID)) {
-      this.storyController.startChapter(CHAPTER_FOUR_ID);
-      // 第四章：玩家直接传送到守林人阿岚身旁（右边 80px，明确落在 200 触发半径内），
-      // 放完开场对话即自动触发，无需自行走位找人。
-      this.goToStoryLocation('chapter-4-highland-entry');
-      return;
-    }
-    if (!snapshot.completedChapterIds.includes(CHAPTER_FIVE_ID)) {
-      this.storyController.startChapter(CHAPTER_FIVE_ID);
-      this.goToStoryLocation('chapter-5-fields-entry');
-      return;
-    }
-    if (!snapshot.completedChapterIds.includes(CHAPTER_SIX_ID)) {
-      this.storyController.startChapter(CHAPTER_SIX_ID);
-      this.goToStoryLocation('chapter-6-royal-tomb-entry');
-      return;
-    }
-    if (!snapshot.completedChapterIds.includes(CHAPTER_SEVEN_ID)) {
-      this.storyController.startChapter(CHAPTER_SEVEN_ID);
-      this.goToStoryLocation('chapter-7-highland-entry');
-      return;
-    }
-    if (!snapshot.completedChapterIds.includes(CHAPTER_EIGHT_ID)) {
-      this.storyController.startChapter(CHAPTER_EIGHT_ID);
-      this.goToStoryLocation('chapter-8-royal-tomb-entry');
-      return;
-    }
-    if (!snapshot.completedChapterIds.includes(CHAPTER_NINE_ID)) {
-      this.storyController.startChapter(CHAPTER_NINE_ID);
-      this.goToStoryLocation('chapter-9-city-entry');
-      return;
-    }
-    this.presentStoryStep(this.storyController.currentStep());
+    this.storyController.startChapter(nextChapterId);
   }
 
   // 是否还有未开始的章节（用于章末自动衔接，避免空 step 时无限递归）
@@ -1921,6 +1954,50 @@ export class YinXuCity extends Component {
     return STORY_CHAPTER_IDS.some(chapterId => !completed.has(chapterId));
   }
 
+  /**
+   * 章完成后兜底推进下一章：不依赖 presentStoryStep(null) 监听器的调用时序。
+   * 在「对话完成 / 占卜完成」两条章末路径的 handle 之后显式调用——
+   * 若监听器路径已正常接章（currentChapterId 已是下一章），此处 early-return 不重复；
+   * 若监听器路径因任何原因未触发接章（currentChapterId 仍为空、但有未开始章），则此处补上，
+   * 保证小人一定被传送到下一章落点，绝不停留在上一章。
+   */
+  private advanceToNextChapterIfNeeded() {
+    if (!this.storyWorldEntered) return;
+    const snapshot = this.storyController?.snapshot();
+    if (!snapshot) return;
+    if (snapshot.currentChapterId) return; // 仍有进行中章节，不抢跑
+    if (!this.hasUnstartedStoryChapter()) return;
+    console.log('[Story] advanceToNextChapterIfNeeded: 本章已完成，自动衔接下一章。');
+    this.beginChapterOneIfNeeded();
+  }
+
+  /**
+   * 脚本化传送（章末自动接章 / 测试传送）提交落点前，必须先把玩家从「宗庙内殿」
+   * 这类非外部世界模式强制归位到 world。内殿模式下：
+   *   - `player.parent` 是 templeInterior、`world.active === false`；
+   *   - `followCamera` 首行遇 templeInterior 直接 return（相机被冻结）。
+   * 若不归位就写入下一章的世界坐标，画面会停在上一章的内殿、小人被甩出可见范围
+   * 而「消失」——这正是章末接章脱节的第四层成因（前三层是 region 状态机层）。
+   * 幂等：已在外部世界时直接返回，正常路径零开销。
+   */
+  private restoreOutsideWorldForScriptedTravel() {
+    const alreadyOutside = this.worldMode === 'outside'
+      && (!this.player?.isValid || this.player.parent === this.world);
+    if (alreadyOutside) return;
+    // 占卜席状态一并清除，避免归位后仍被判定「坐着」而锁住移动与出殿。
+    this.seated = false;
+    this.templePreSitPosition = null;
+    this.templeLastRisePosition = null;
+    // restorePlayerAfterStoryTestTravel 会顺手解开 regionInputLocked；若本次归位发生在
+    // 黑屏切换途中（setPlayerPosition 保险路径），提前解锁会让玩家在黑屏里乱走并偏离落点，
+    // 故保存并还原输入锁，交回状态机在 FADING_IN 结束时统一解锁。
+    const inputLocked = this.regionInputLocked;
+    this.restorePlayerAfterStoryTestTravel();
+    this.regionInputLocked = inputLocked;
+    // 引导箭头在进殿时被挂到内殿节点下，必须切回外部 world，否则新章指引不可见。
+    this.questGuide?.setWorldNode(this.world);
+  }
+
   // 把玩家传送到指定世界坐标（同步位置/相机/可视节点），用于章节间切换时直接落在 NPC 旁
   private goToStoryLocation(locationId: string) {
     const location = storyLocation(locationId);
@@ -1928,6 +2005,13 @@ export class YinXuCity extends Component {
       console.error('[StoryLocation] registered location is unavailable; scripted travel cancelled.', { locationId });
       return false;
     }
+    // 章末接章时玩家通常正站在宗庙内殿（刚占卜完起身），必须归位到外部 world 才能落点。
+    // 但归位**不能**在这里做：此刻黑屏遮罩尚未盖上（transitionToEntry 之后才进入 FADING_OUT），
+    // 立刻退殿会让画面从内殿硬切到城中心（进殿时 playerPos 被置为内殿局部坐标 0,-265）再变黑，
+    // 观感正是「视觉还停在上一章位置」。归位统一交给 setPlayerPosition 回调完成——
+    // 那是所有落点提交的唯一出口（黑屏切换 / 即时兜底传送 / 快照恢复都经由它），
+    // 且执行时画面已全黑，切换干净无闪帧。
+    // 落点校验 canScriptedEntryStand 只做纯几何边界判断、不受内殿模式影响，故推迟归位不影响校验。
     const started = this.regionTransitionManager.transitionToEntry(location.entryId);
     if (started) {
       this.save.storyLocationId = location.id;
@@ -1999,6 +2083,16 @@ export class YinXuCity extends Component {
     if (!manager || objective.targetX === undefined || objective.targetY === undefined) return false;
     const pitRegion = objective.targetRegion ?? this.regionAtPoint(objective.targetX, objective.targetY);
     if (!pitRegion) return false; // 无法判定区域，退化直指坑坐标（由 BFS 处理）
+
+    // 关键：用玩家实际坐标反查区域，避免 regionTransitionManager 状态机在 wilderness
+    // 区域（洹水河畔/山林高地/王陵/郊外田野）与玩家真实位置不同步时，把同区误判成跨区。
+    // 只要玩家实际站在目标坑所属区域内，箭头就必须直指该坑，绝不改指向传送标识。
+    const playerRegionByPosition = this.regionAtPoint(this.playerPos.x, this.playerPos.y);
+    if (playerRegionByPosition && playerRegionByPosition === pitRegion) return false;
+
+    // 目标坑已在附近（一眼可见、无需过图）：直接直指坑，避免 region 状态机与玩家实际位置
+    // 短暂不同步时，箭头被错误拉向跨区传送点。
+    if (this.isDigSiteNearby(objective)) return false;
     const current = manager.currentRegionId;
     if (pitRegion === current) return false; // 同区直指坑
 
@@ -2101,6 +2195,7 @@ export class YinXuCity extends Component {
       item.seekStepId === step?.id || item.lessonStepId === step?.id);
     const isChapterOneFragment = CHAPTER_ONE_FRAGMENT_CARDS.some(item =>
       item.seekStepId === step?.id || item.lessonStepId === step?.id);
+    let site: ExcavationSite | null = null;
     if (isChapterOneFragment || isChapterTwoFragment || isChapterThreeFragment || isChapterFourFragment
       || isChapterFiveFragment || isChapterSixFragment || isChapterSevenFragment
       || isChapterEightFragment || isChapterNineFragment) {
@@ -2115,7 +2210,7 @@ export class YinXuCity extends Component {
         { match: isChapterEightFragment, cards: CHAPTER_EIGHT_FRAGMENT_CARDS, id: CHAPTER_EIGHT_ID },
         { match: isChapterNineFragment, cards: CHAPTER_NINE_FRAGMENT_CARDS, id: CHAPTER_NINE_ID },
       ].find(entry => entry.match);
-      const site = chapterReserve
+      site = chapterReserve
         ? this.reserveStoryExcavationSite(chapterReserve.cards, chapterReserve.id)
         : null;
       if (site && objective) {
@@ -2138,21 +2233,27 @@ export class YinXuCity extends Component {
         objective.detail = hint.detail;
       }
       routingToMapExit = this.routeNarrativeExcavationToMapExit(step.chapterId, objective, kind);
-
     }
     // 宗庙内部 world 被隐藏，引导箭头节点已切到 templeInterior；改用内部坐标指向占卜席，覆盖外部 storyLocation 坐标。
     if (this.worldMode === 'templeInterior' && objective) {
       objective.targetX = 0;
       objective.targetY = -24;
     }
-    this.questGuide.setObjective(objective);
+    // 最终目标（金色光环）永远锁在目标坑/占卜席上；箭头目标 objective.target 由 routeNarrative 决定：
+    // 同区=坑，跨区=下一出口。这样过图后重跑 presentStoryStep 会自动切回同区指坑，绝不横跳。
+    const ultimateTarget = site
+      ? new Vec2(site.x, site.y)
+      : (this.worldMode === 'templeInterior' && objective)
+        ? new Vec2(0, -24)
+        : (objective && objective.targetX !== undefined && objective.targetY !== undefined
+          ? new Vec2(objective.targetX, objective.targetY)
+          : null);
+    this.questGuide.setObjective(objective, ultimateTarget ?? undefined);
     this.questGuide.setChapterProgress(this.chapterRequirementText(step?.chapterId));
     if (objective?.targetX !== undefined && objective.targetY !== undefined) {
-      // Boundary exits are intentionally direct and stable.  Only a real
-      // excavation target needs the obstacle-aware waypoint route.
-      this.questGuide.setNavigationPath(routingToMapExit
-        ? []
-        : this.buildQuestNavigationPath(objective.targetX, objective.targetY));
+      // 箭头直接指向当前航点（同区=坑，跨区=出口），像导游一样一段一段带路。
+      // BFS 路径暂时不用，避免复杂地形把箭头拐向与目标坑相反的方向。
+      this.questGuide.setNavigationPath([]);
     }
     // 轻量引导飘字：挖字进度提示 + 占卜提示（按 step 去重，避免跨区/重绘反复刷）。
     if (step && step.id !== this.lastGuidanceStepId) {
@@ -2162,6 +2263,20 @@ export class YinXuCity extends Component {
         this.showStatusNotice('卜力已苏醒——在占卜席上挑选合适的甲骨，为求问的旅人占卜。', 4.8);
       } else if (step.completeOn === 'temple-entered') {
         this.showStatusNotice('循金色箭头前往宗庙内殿，为求问的旅人占卜。', 4.8);
+        // 治本：玩家从城外回宗庙占卜时，直接送入内殿并登记“入殿”，
+        // 避免被城墙/南门卡住、永远到不了宗庙祭台而卡死章节。
+        // enterTempleInterior 内部会先 handle('temple-entered') 再回调 presentStoryStep，
+        // 届时 currentStep 已变为 take-divination-seat，不会二次递归进殿。
+        // 注意：这里**不要**用 regionInputLocked 拦截黑屏切换途中的自动进殿。
+        // 一是外层有 lastGuidanceStepId 去重（每个 step 只进一次），一旦此处被拦下，
+        // 该步骤将永久不再触发自动进殿，直接复活「卡在 enter-temple」的老 bug；
+        // 二是玩家从挖字区走边界出口回城时，onRegionChanged 正是在黑屏中重放本步骤，
+        // 此刻进殿反而是期望行为——淡入时人已在殿内，衔接自然。
+        // 接章路径不受影响：各章首步都是「去找 NPC」，completeOn 不是 temple-entered。
+        if (this.worldMode === 'outside' && this.templeInterior?.isValid
+          && this.overlay === 'none') {
+          this.enterTempleInterior();
+        }
       } else if (chId) {
         const isSeek = this.allStoryFragmentCards.some(item => item.seekStepId === step.id);
         if (isSeek) {
@@ -2463,43 +2578,77 @@ export class YinXuCity extends Component {
       return;
     }
     this.storyController?.handle({ type: 'dialogue-completed' });
+    this.advanceToNextChapterIfNeeded();
   }
 
-  /** Main-story words must be both found and learned before a chapter may close. */
+  /** 本章全部主线字（引导字 + 自由探索字），用于面板统计与全盘收集，不门控章完成。 */
   private chapterMainProgress(chapterId: string) {
     const plan = collectionPlanFor(chapterId);
     const cardIds = plan ? [...plan.guidedCardIds, ...plan.mainFreeCardIds] : [];
+    const validIds = cardIds.filter(id => this.oracleCards.some(card => card.id === id));
     const excavatedCards = this.save.excavatedCardIds ?? [];
-    const collected = cardIds.filter(id => this.save.unlockedOracleIds.includes(id) || excavatedCards.includes(id)).length;
-    const learned = cardIds.filter(id => (this.save.mastery[id]?.correctCount ?? 0) > 0).length;
-    return { total: cardIds.length, collected, learned };
+    const collected = validIds.filter(id => this.save.unlockedOracleIds.includes(id) || excavatedCards.includes(id)).length;
+    const learned = validIds.filter(id => (this.save.mastery[id]?.correctCount ?? 0) > 0).length;
+    return { total: validIds.length, collected, learned };
   }
 
-  /** The small fixed set that advances the chapter's narrated route. */
+  /** 本章必要引导字：金圈箭头带路、门控章完成、决定进度条与选择题触发。 */
   private chapterGuidedProgress(chapterId: string) {
     const cardIds = [...(collectionPlanFor(chapterId)?.guidedCardIds ?? [])];
+    const validIds = cardIds.filter(id => this.oracleCards.some(card => card.id === id));
     const excavatedCards = this.save.excavatedCardIds ?? [];
-    const collected = cardIds.filter(id => this.save.unlockedOracleIds.includes(id) || excavatedCards.includes(id)).length;
-    const learned = cardIds.filter(id => (this.save.mastery[id]?.correctCount ?? 0) > 0).length;
-    return { total: cardIds.length, collected, learned };
+    const collected = validIds.filter(id => this.save.unlockedOracleIds.includes(id) || excavatedCards.includes(id)).length;
+    const learned = validIds.filter(id => (this.save.mastery[id]?.correctCount ?? 0) > 0).length;
+    return { total: validIds.length, collected, learned };
   }
 
   private chapterRequirementText(chapterId: string | null | undefined) {
     if (!chapterId) return '';
     const guided = this.chapterGuidedProgress(chapterId);
-    const main = this.chapterMainProgress(chapterId);
     if (guided.total <= 0) return '';
-    const divinationNeed = Math.min(3, main.total);
-    return `必要引导字：已挖 ${guided.collected}/${guided.total} · 已学 ${guided.learned}/${guided.total}　占卜需本章先挖 ${divinationNeed} 字`;
+    const divinationNeed = Math.min(3, guided.total);
+    return `必要引导字：已挖 ${guided.collected}/${guided.total} · 已学 ${guided.learned}/${guided.total}　占卜需先挖 ${divinationNeed} 字`;
+  }
+
+  /** 当本章引导字挖完/学完但还没推进到占卜时给出明确提示，避免玩家挖完不知道下一步该干嘛。 */
+  private showChapterCollectionMilestone(chapterId: string | undefined) {
+    if (!chapterId) return;
+    const snapshot = this.storyController?.snapshot();
+    if (!snapshot || snapshot.completedChapterIds.includes(chapterId)) return;
+    // 以「引导字」为口径：自由探索字不门控章完成，只影响全盘收集。
+    const guided = this.chapterGuidedProgress(chapterId);
+    if (guided.total <= 0) return;
+    const allCollected = guided.collected >= guided.total;
+    const allLearned = guided.learned >= guided.total;
+    if (allCollected && allLearned) {
+      this.showStatusNotice('本章甲骨皆已集齐并学会，回宗庙完成占卜，方能让本章功德圆满。', 5);
+    } else if (allCollected) {
+      const missing = guided.total - guided.learned;
+      this.showStatusNotice(`本章碎甲已集齐，尚有 ${missing} 个甲骨未学会；去辨认它们，再回宗庙占卜。`, 5);
+    } else {
+      const missing = guided.total - guided.collected;
+      this.showStatusNotice(`本章甲骨已收集 ${guided.collected}/${guided.total}，尚有 ${missing} 个未挖出；循金色箭头继续挖掘，集齐后回宗庙占卜。`, 5);
+    }
+    // 引导字全部学会后：开放本章自由探索坑（含本章剩余主线字，供“全必挖”），
+    // 并尝试开启本章挑战。此前不提前点亮全章坑，避免“满场可挖=全指引”观感。
+    // 自由探索坑只含已完成章/当前章字，绝不含尚未到达的后续章字（见 getUnlockedStoryCardIds 门控）。
+    if (guided.learned >= guided.total && !snapshot.completedChapterIds.includes(chapterId)) {
+      this.prepareChapterFreeExploration(chapterId);
+      this.tryOpenChapterChallenge(chapterId);
+    }
+    // 章末因「尚缺本章自由探索字」被阻塞的兜底：玩家补齐全部本章字后，
+    // 此处补判章完成并自动衔接下一章，避免停在末步无人接管而软锁。
+    if (this.storyController?.recheckChapterCompletion()) {
+      this.advanceToNextChapterIfNeeded();
+    }
   }
 
   private tryOpenChapterChallenge(chapterId: string) {
-    const progress = this.chapterMainProgress(chapterId);
-    if (progress.total > 0 && progress.learned < progress.total) {
-      const missing = progress.total - progress.learned;
-      this.prepareChapterFreeExploration(chapterId);
+    const guided = this.chapterGuidedProgress(chapterId);
+    if (guided.total > 0 && guided.learned < guided.total) {
+      const missing = guided.total - guided.learned;
       this.showStatusNotice(
-        `本章骨纹已收集 ${progress.collected}/${progress.total}，已学会 ${progress.learned}/${progress.total}；还需学习 ${missing} 个主线字。`,
+        `本章骨纹已收集 ${guided.collected}/${guided.total}，已学会 ${guided.learned}/${guided.total}；还需学习 ${missing} 个引导字。`,
         5,
       );
       return false;
@@ -2517,7 +2666,7 @@ export class YinXuCity extends Component {
   private prepareChapterFreeExploration(chapterId: string) {
     const regions: Record<string, ExcavationRegion[]> = {
       [CHAPTER_ONE_ID]: ['trial'],
-      [CHAPTER_TWO_ID]: ['river', 'lake'],
+      [CHAPTER_TWO_ID]: ['river'],
       [CHAPTER_THREE_ID]: ['royal'],
       [CHAPTER_FOUR_ID]: ['forest'],
       [CHAPTER_FIVE_ID]: ['field'],
@@ -2528,15 +2677,36 @@ export class YinXuCity extends Component {
     };
     const plan = collectionPlanFor(chapterId);
     if (!plan) return;
+    // 取本章未收集的自由探索字（含原待补字）：现已生成占位卡、可挖到，全部进入自由探索坑与完成门槛。
     const remaining = plan.mainFreeCardIds
       .filter(id => !this.save.unlockedOracleIds.includes(id))
-      .map(id => this.oracleCards.find(card => card.id === id && this.hasRealOracleGlyph(card)))
+      .map(id => this.oracleCards.find(card => card.id === id))
       .filter((card): card is OracleCardData => Boolean(card));
     if (!remaining.length) return;
-    const sites = this.excavationSites.filter(site =>
+    const allSites = this.excavationSites.filter(site =>
       regions[chapterId]?.includes(site.region) && !site.storyTarget && !site.awaitingStudy);
-    sites.forEach((site, index) => {
-      const card = remaining[index % remaining.length];
+    if (!allSites.length) return;
+    // 均匀散布：按到本章挖掘区中心的距离排序，等间隔取样 remaining.length 个坑，
+    // 让可见坑覆盖整片挖掘区（玩家需走动探索），而不是全挤在 NPC 最近的一圈。
+    const regionRect = this.regionForChapterExcavation(chapterId);
+    const centerX = regionRect ? (regionRect.left + regionRect.right) / 2 : 0;
+    const centerY = regionRect ? (regionRect.bottom + regionRect.top) / 2 : 0;
+    const sorted = allSites.slice().sort((a, b) =>
+      ((a.x - centerX) * (a.x - centerX) + (a.y - centerY) * (a.y - centerY)) -
+      ((b.x - centerX) * (b.x - centerX) + (b.y - centerY) * (b.y - centerY)));
+    const step = sorted.length / remaining.length;
+    const chosen: ExcavationSite[] = [];
+    for (let k = 0; k < remaining.length && k < sorted.length; k++) {
+      chosen.push(sorted[Math.min(sorted.length - 1, Math.floor(k * step))]);
+    }
+    // 洗牌字序后一一对应分配，保证每个可见坑字唯一、绝不重复（彻底解决「四个坑全是金」）。
+    const shuffled = remaining.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    chosen.forEach((site, i) => {
+      const card = shuffled[i % shuffled.length];
       site.reward = { kind: 'oracle', quality: card.quality, cardId: card.id, amount: 0, experience: 0, coins: 0, tier: 'story' };
       site.active = true;
       site.revealed = true;
@@ -2544,6 +2714,22 @@ export class YinXuCity extends Component {
       site.holeTimer = 0;
       this.redrawExcavationSite(site);
     });
+  }
+
+  // 取某章专属挖掘区的矩形边界，用于自由探索坑的均匀散布计算。
+  private regionForChapterExcavation(chapterId: string): { left: number; right: number; bottom: number; top: number } | null {
+    switch (chapterId) {
+      case CHAPTER_ONE_ID: return { left: -450, right: 220, bottom: -880, top: 300 };
+      case CHAPTER_TWO_ID: return this.riverRegion;
+      case CHAPTER_THREE_ID: return this.tombRegion;
+      case CHAPTER_FOUR_ID: return this.forestRegion;
+      case CHAPTER_FIVE_ID: return this.fieldRegion;
+      case CHAPTER_SIX_ID: return this.tombRegion;
+      case CHAPTER_SEVEN_ID: return this.forestRegion;
+      case CHAPTER_EIGHT_ID: return this.tombRegion;
+      case CHAPTER_NINE_ID: return this.fieldRegion;
+      default: return null;
+    }
   }
 
   private openChapterChallenge(chapterId: string) {
@@ -3056,6 +3242,16 @@ export class YinXuCity extends Component {
     if (site.root.isValid) this.redrawExcavationSite(site);
   }
 
+  // 全必挖后坑数 < 字数会复用坑位；若目标坑恰在冷却，必须立即激活让其可挖，
+  // 否则等重生时 reward 被 rollExcavationReward 覆盖成随机字 → 当前字永远挖不到(死锁)。
+  private activateStoryPit(site: ExcavationSite) {
+    site.active = true;
+    site.respawnTimer = 0;
+    site.holeTimer = 0;
+    if (site.root.isValid) site.root.active = true;
+    this.redrawExcavationSite(site);
+  }
+
   private updateChapterOneStory() {
     const step = this.storyController?.currentStep();
     if (!step || this.storyArrivalLocked) return;
@@ -3289,12 +3485,90 @@ export class YinXuCity extends Component {
       site.reward = { kind: 'oracle', quality: 'blue', cardId: fragment.cardId ?? '', amount: 0 };
       this.storyController.reserveStorySite(site.id);
       this.markStoryTarget(site);
+      this.activateStoryPit(site);
+      this.hideNonTargetChapterPits(chapterId, site);
       return site;
     }
     site.reward = { kind: 'oracle', quality: card.quality, cardId: fragment.cardId, amount: 0 };
     this.storyController.reserveStorySite(site.id);
     this.markStoryTarget(site);
+    this.activateStoryPit(site);
+    this.hideNonTargetChapterPits(chapterId, site);
     return site;
+  }
+
+  // 引导阶段：除金圈目标坑 + 正在学习的坑外，额外保留「少量（2~3个）邻近普通坑」，
+  // 给玩家一点自由探索感而不“全指引”；其余本章坑与尚未到达的后续章坑一律隐藏。
+  // 邻近坑填“已解锁章字”（含他章复习字，绝不含后续未到达章字，见 getUnlockedStoryCardIds 门控）。
+  // 已通关章的坑仍保留可见（符合“可含已挖过的其他章字”的约定）。
+  private hideNonTargetChapterPits(chapterId: string, target: ExcavationSite) {
+    const currentIndex = STORY_CHAPTER_IDS.indexOf(chapterId);
+    const pool = this.chapterPitPool(chapterId);
+    const nearbyCount = 3;
+    const candidates = pool
+      .filter(s => s !== target && !s.storyTarget && !s.awaitingStudy)
+      .sort((a, b) =>
+        ((a.x - target.x) * (a.x - target.x) + (a.y - target.y) * (a.y - target.y)) -
+        ((b.x - target.x) * (b.x - target.x) + (b.y - target.y) * (b.y - target.y)));
+    const keepNearby = new Set(candidates.slice(0, Math.min(nearbyCount, candidates.length)));
+    const toHide = new Set<ExcavationSite>();
+    for (const otherId of STORY_CHAPTER_IDS) {
+      const otherIdx = STORY_CHAPTER_IDS.indexOf(otherId);
+      // 尚未到达的后续章坑：绝对隐藏，杜绝“未挖过的后面章节的字”出现。
+      if (otherIdx > currentIndex) {
+        this.chapterPitPool(otherId).forEach(s => toHide.add(s));
+        continue;
+      }
+      // 当前章坑：仅保留目标坑 + 少量邻近坑，其余隐藏（避免满场可挖=全指引）。
+      if (otherId === chapterId) {
+        pool.forEach(s => { if (s !== target && !keepNearby.has(s)) toHide.add(s); });
+      }
+      // 已通关章坑：保留（符合“可含已挖过的其他章字”）。
+    }
+    toHide.forEach(site => {
+      if (site === target || site.storyTarget || site.awaitingStudy) return;
+      if (keepNearby.has(site)) return;
+      // 拾遗坑（含 supplement 区挂的坑）不隐藏，避免永久消失。
+      if (site.reward.kind === 'oracle' && site.reward.cardId && SUPPLEMENT_CARD_IDS.has(site.reward.cardId)) return;
+      if (!site.active && !site.revealed) return;
+      site.active = false;
+      site.revealed = false;
+      site.root.active = false;
+      this.redrawExcavationSite(site);
+    });
+    // 点亮少量邻近普通坑（无金圈、不引导），填已解锁章字。
+    keepNearby.forEach(site => this.lightFreePit(site));
+  }
+
+  // 把某个非剧情坑点亮为可挖，并填入“已解锁章字”（已通关章 ∪ 当前章，绝不含后续章字）。
+  private lightFreePit(site: ExcavationSite) {
+    if (site.storyTarget || site.awaitingStudy) return;
+    if (!site.reward.cardId || site.reward.kind !== 'oracle') {
+      const card = this.pickUnlockedStoryCard();
+      if (card) {
+        site.reward = { kind: 'oracle', quality: card.quality, cardId: card.id, amount: 0, experience: 0, coins: 0, tier: 'story' };
+      }
+    }
+    site.active = true;
+    site.revealed = true;
+    site.holeTimer = 0;
+    site.respawnTimer = 0;
+    site.root.active = true;
+    this.redrawExcavationSite(site);
+  }
+
+  // 从已解锁主线字池挑一个字（优先未收集的新字，无则任意已解锁字作复习），用于自由探索坑填充。
+  private pickUnlockedStoryCard(): OracleCardData | null {
+    const unlocked = this.getUnlockedStoryCardIds();
+    const excavatable = this.oracleCards.filter(card =>
+      card.excavatable && this.hasRealOracleGlyph(card) && STORY_CARD_IDS.has(card.id) && unlocked.has(card.id));
+    if (!excavatable.length) return null;
+    const uncollected = excavatable.filter(card =>
+      !this.save.unlockedOracleIds.includes(card.id) && !this.excavationRollingReserved.has(card.id));
+    const pool = uncollected.length ? uncollected : excavatable;
+    const card = pool[Math.floor(Math.random() * pool.length)] ?? null;
+    if (card) this.excavationRollingReserved.add(card.id); // 本帧已占用，邻近坑不再重复抽到它
+    return card;
   }
 
   /**
@@ -3359,7 +3633,7 @@ export class YinXuCity extends Component {
     // 字只在本章区域内散落不同位置，绝不会跨到别的章的区域、也不会散落全图导致跨区死路。
     // 池内按章名确定性 Fisher-Yates 打乱，大章（字数 > 坑数）取模复用坑位均匀分散。
     const regionsForChapter: Record<string, ExcavationRegion[]> = {
-      [CHAPTER_TWO_ID]: ['river', 'lake'],
+      [CHAPTER_TWO_ID]: ['river'],
       [CHAPTER_THREE_ID]: ['royal'],
       [CHAPTER_FOUR_ID]: ['forest'],
       [CHAPTER_FIVE_ID]: ['field'],
@@ -5958,8 +6232,13 @@ this.drawCityWallsAndGate();
     this.loadExcavationSpriteFrames();
     const layouts: Record<string, Array<[number, number]>> = {
       river: [
-        [-5940,-250],[-5590,-255],[-5210,-430],[-4710,-380],[-4090,-620],
-        [-4200,-1320],[-5470,-1770],[-4920,-1980],[-4200,-2320],[-5440,-2790],
+        // 洹水河畔·北岸河滩陆地（NPC 阿潍在(-4900,-700)、北桥在(-4900,795) 一带均为陆地）。
+        // 原 river 坑坐标压在河道水域被整体 defer，现改布到北岸 y∈[-650,650] 河滩带，
+        // 12 坑覆盖第二章 12 字，全部落在 RIVERBANK 同区，挖字箭头直接指向、不再跨区到城南。
+        // 即便个别 seed 贴近水线，resolveExcavationPosition 会回退搜索到同 region 有效陆地。
+        [-5800,-650],[-5400,-650],[-5000,-650],[-4600,-650],[-4200,-650],[-4000,-650],
+        [-5600,0],[-5200,0],[-4800,0],[-4400,0],
+        [-5400,650],[-4600,650],
       ],
       // field=FIELDS 内田野坑，现供第二/五/九章使用（玩家经脚本化 entry 直接落入 FIELDS）。
       // 第一章教学坑已迁出 FIELDS，改用下方 trial 区（出南城门直行即达的城南试炼场），
@@ -5984,13 +6263,18 @@ this.drawCityWallsAndGate();
         // 南门外左侧可达荒地（x<140，避开 FIELDS 死区），逐步往南拉开距离
         [-250, -400], [80, -520], [-350, -700],
         // 以下 3 个为拾遗补充坑（index>=5，最远，挖完教学字再往南才到）
-        [0, -900], [-450, -1150],
+        [0, -860], [-450, -820],
       ],
+      // lake 坑：城南西南湖湾（OUTSKIRTS 可达荒地）。坐标必须落在 OUTSKIRTS 可达区
+      // (y in [-960,-240]，既在城南边界之上、又不进 CITY)，且 lakeRegion 边界已同步
+      // 收紧到该可达带（bottom=-960,top=-300），resolveExcavationPosition 的 clamp 不会再
+      // 把它拉回南墙死区(y<-960)。mapRegion=OUTSKIRTS，玩家经 RIVERBANK→北桥→OUTSKIRTS
+      // 可步行到达，不再死循环。
       lake: [
-        [-1500,-1800],[-1050,-1800],[-600,-1800],
-        [-1500,-1450],[-1050,-1450],[-600,-1450],
-        [-1500,-1100],[-1050,-1100],[-600,-1100],
-        [-1275,-1275],
+        [-1500,-850],[-1050,-850],[-600,-850],
+        [-1500,-600],[-1050,-600],[-600,-600],
+        [-1500,-350],[-1050,-350],[-600,-350],
+        [-1275,-500],
       ],
       royal: [
         [840,-2720],[1110,-2850],[850,-3330],[1120,-3820],[1980,-2760],
@@ -6004,10 +6288,9 @@ this.drawCityWallsAndGate();
         [3300,-2000],[3700,-2000],[4100,-2000],[4500,-2000],[4900,-2000],[5300,-2000],
       ],
     };
-    // The river artwork owns this whole channel. Do not place the old
-    // riverbank excavation mounds there: they overlap water/shore pixels and
-    // make the new river read as a pile of unrelated props.
-    (Object.keys(layouts) as ExcavationRegion[]).filter(region => region !== 'river').forEach(region => {
+    // 不再排除 river 坑：现已改布到 RIVERBANK 北岸河滩陆地（见上方 river 布局），
+    // 第二章挖字在河边同区完成，箭头直指，不再跨区到城南湖湾。
+    (Object.keys(layouts) as ExcavationRegion[]).forEach(region => {
       layouts[region].forEach((seedPoint, index) => {
         const point = this.resolveExcavationPosition(seedPoint[0], seedPoint[1], region);
         const { root, sprite, glow } = this.spawnExcavationSiteNode(`${region}-${index}`, point.x, point.y);
@@ -6159,12 +6442,14 @@ this.drawCityWallsAndGate();
         if (this.isExcavationPositionValid(x, y, region, ignoreSite, relaxedSpacing)) return new Vec2(x, y);
       }
     }
-    // 最后保底：以粗网格扫描整个区域，只要"可站立且不在障碍内"即可（忽略坑间距），
-    // 绝不返回未经校验的坐标，避免土坑落在不可通行处。
+    // 最后保底：以粗网格扫描整个区域，只要"可站立、不在障碍内、不泡水"即可（忽略坑间距），
+    // 绝不返回未经校验的坐标，避免土坑落在不可通行处或河里。
     const gridStep = 80;
+    const fallbackWaterMargin = (region === 'river' || region === 'lake') ? 50 : 24;
     for (let gy = bounds.bottom + 60; gy <= bounds.top - 60; gy += gridStep) {
       for (let gx = bounds.left + 60; gx <= bounds.right - 60; gx += gridStep) {
-        if (this.canStandRadius(gx, gy, 24) && !this.pointInAnyObstacle(gx, gy)) {
+        if (this.canStandRadius(gx, gy, 24) && !this.pointInAnyObstacle(gx, gy)
+          && !this.pointInWater(gx, gy, fallbackWaterMargin)) {
           return new Vec2(gx, gy);
         }
       }
@@ -6186,9 +6471,9 @@ this.drawCityWallsAndGate();
     if (this.excavationSites.some(site => site !== ignoreSite && Math.hypot(site.x - x, site.y - y) < minimumSpacing)) return false;
     if (this.cropPlants.some(crop => Math.hypot(crop.x - x, crop.y - y) < 46)) return false;
     if (region === 'river' || region === 'lake') {
-      // Waterside finds stay close enough to the shoreline for their regional
-      // identity, but never occupy water or an inaccessible bank decoration.
-      if (!this.pointInWater(x, y, region === 'lake' ? 205 : 260) || this.pointInWater(x, y, 34)) return false;
+      // 土坑 sprite 会延伸到中心点外，必须整体落在岸上；lake 可贴湖岸但不能入水，
+      // river 离河岸更远些，避免视觉上一半泡进河里。
+      if (this.pointInWater(x, y, region === 'lake' ? 70 : 100)) return false;
     }
     const approachDistance = 68;
     const hasReachableApproach = [[approachDistance, 0], [-approachDistance, 0], [0, approachDistance], [0, -approachDistance]]
@@ -6228,7 +6513,12 @@ this.drawCityWallsAndGate();
     // 启动阶段控制器尚未创建，应读取已经完成迁移的存档状态；初始化完成后再读取实时快照。
     const snap = this.storyController?.snapshot() ?? this.save.story;
     const ids = new Set<string>();
+    const currentIndex = snap.currentChapterId ? STORY_CHAPTER_IDS.indexOf(snap.currentChapterId) : -1;
     for (const p of CHAPTER_CHAR_PLANS) {
+      const idx = STORY_CHAPTER_IDS.indexOf(p.chapterId);
+      // 双保险：即便存档里 currentChapterId / completedChapterIds 因异常错乱跑到更后面的章，
+      // 也绝不放行“玩家尚未到达的后续章”的字（idx > 当前章序号一律跳过）。
+      if (currentIndex >= 0 && idx > currentIndex) continue;
       if (snap.completedChapterIds.includes(p.chapterId) || snap.currentChapterId === p.chapterId) {
         for (const c of p.chars) {
           const cardId = planCardId(c);
@@ -6293,13 +6583,15 @@ this.drawCityWallsAndGate();
     const reservedIds = new Set(this.excavationSites
       .filter(site => site.reward.kind === 'oracle' && !!site.reward.cardId)
       .map(site => site.reward.cardId as string));
-    const uncollected = candidatePool.filter(card => !this.save.unlockedOracleIds.includes(card.id) && !reservedIds.has(card.id));
+    const uncollected = candidatePool.filter(card =>
+      !this.save.unlockedOracleIds.includes(card.id) && !reservedIds.has(card.id) && !this.excavationRollingReserved.has(card.id));
     const collectionRatio = candidatePool.length > 0 ? uncollected.length / candidatePool.length : 1;
     // 候选池内未收集优先给新字；收集得越多越易抽到重复（重复走 completeExcavation 转墨料，不无限给奖励）。
     const duplicateChance = collectionRatio < .8 ? .05 : Math.min(.38, .05 + (collectionRatio - .8) * 1.65);
     const freshPool = uncollected.length > 0 ? uncollected : candidatePool;
     const finalPool = freshPool.length > 0 && Math.random() >= duplicateChance ? freshPool : candidatePool;
     const card = finalPool[Math.floor(Math.random() * finalPool.length)];
+    if (card) this.excavationRollingReserved.add(card.id); // 本帧已占用，避免同帧其他坑再抽到它
     if (!card) {
       const minimum = region === 'royal' ? 6 : region === 'lake' ? 4 : 3;
       return { kind: 'ink', quality: null, cardId: null, amount: minimum + Math.floor(Math.random() * 4), tier: 'story', experience: 0, coins: 0 };
@@ -6402,8 +6694,8 @@ this.drawCityWallsAndGate();
     this.toolActionDuration = .86;
     this.toolActionTimer = this.toolActionDuration;
     site.active = false;
-    site.respawnTimer = 300;
-    site.holeTimer = 180;
+    site.respawnTimer = 12;
+    site.holeTimer = 8;
     this.redrawExcavationSite(site);
     this.pendingExcavation = { site, timer: .62, rewarded: false };
     this.createDigParticleBurst(site.x, site.y);
@@ -6454,6 +6746,8 @@ this.drawCityWallsAndGate();
           siteId: site.id,
         });
       }
+      const chapterId = this.storyController?.snapshot().currentChapterId;
+      this.showChapterCollectionMilestone(chapterId);
       if (card) {
         // 字卡已录入：弹出辨识学习面板，学完再推进「学习完成」。
         this.audioManager.playSfx('reward_get');
@@ -6563,6 +6857,8 @@ this.drawCityWallsAndGate();
         this.supplementRevealTimer = YinXuCity.SUPPLEMENT_REVEAL_INTERVAL;
       }
     }
+    // 每次刷新周期开始：清空本帧去重集合，让同帧重生的多个坑能各自拿到不同字，不再撞同一个字。
+    this.excavationRollingReserved.clear();
     for (const site of this.excavationSites) {
       if (!site.root.isValid) continue;
       // 未现世的拾遗坑：保持隐藏、不参与刷新/挖掘，直到被逐批揭示。
@@ -6581,16 +6877,24 @@ this.drawCityWallsAndGate();
         }
         site.respawnTimer = Math.max(0, site.respawnTimer - dt);
         if (!site.awaitingStudy && site.respawnTimer <= 0) {
-          this.moveExcavationSiteToRandomLocation(site);
-          // 拾遗型坑（trial 内的拾遗补充坑，reward.tier==='supplement'）刷新后仍出拾遗字，
-          // 不回落成普通主线字，保证「城内/城外近处也能挖到拾遗」的体验延续。
-          site.reward = site.reward.tier === 'supplement'
-            ? this.rollSupplementReward()
-            : this.rollExcavationReward(site.region);
-          site.active = true;
-          site.holeTimer = 0;
-          site.root.active = true;
-          this.redrawExcavationSite(site);
+          if (site.storyTarget) {
+            // 故事目标坑：保留 reserve 写入的特定字，不随机移位、不覆盖 reward，立即复活待挖。
+            site.active = true;
+            site.holeTimer = 0;
+            site.root.active = true;
+            this.redrawExcavationSite(site);
+          } else {
+            this.moveExcavationSiteToRandomLocation(site);
+            // 拾遗型坑（trial 内的拾遗补充坑，reward.tier==='supplement'）刷新后仍出拾遗字，
+            // 不回落成普通主线字，保证「城内/城外近处也能挖到拾遗」的体验延续。
+            site.reward = site.reward.tier === 'supplement'
+              ? this.rollSupplementReward()
+              : this.rollExcavationReward(site.region);
+            site.active = true;
+            site.holeTimer = 0;
+            site.root.active = true;
+            this.redrawExcavationSite(site);
+          }
         }
         continue;
       }
@@ -9421,10 +9725,10 @@ this.drawCityWallsAndGate();
     // could start Chapter 8 divination using only old words.
     const chapterId = this.storyController?.currentStep()?.chapterId;
     if (chapterId) {
-      const progress = this.chapterMainProgress(chapterId);
+      const progress = this.chapterGuidedProgress(chapterId);
       const required = Math.min(3, progress.total);
       if (required > 0 && progress.collected < required) {
-        this.showStatusNotice(`本章尚未收集足够甲骨字。请先挖掘本章至少 ${required} 个主线字（当前 ${progress.collected}/${required}）。`, 4.5);
+        this.showStatusNotice(`本章尚未收集足够甲骨字。请先循金色箭头挖掘本章至少 ${required} 个引导字（当前 ${progress.collected}/${required}）。`, 4.5);
         return;
       }
     }
@@ -9448,6 +9752,12 @@ this.drawCityWallsAndGate();
     this.divinationStage = 'waiting';
     this.queueTimer = .8;
     this.buildDivinationFrame();
+    // 若当前步骤仍是“进宗庙内殿”（completeOn==='temple-entered'），说明玩家已身处殿内、
+    // 未经外部祭台“进入”这一步；坐下即代表已入殿，先补登记 temple-entered，再登记落座，
+    // 否则 enter-temple 步骤会永远卡住、章节无法推进。
+    if (this.storyController?.currentStep()?.completeOn === 'temple-entered') {
+      this.storyController.handle({ type: 'temple-entered' });
+    }
     this.storyController?.handle({ type: 'temple-seat-reached' });
     if (this.save.ink < this.divinationInkCost && this.divinationText?.isValid) {
       this.divinationText.string = `墨料不足。每次占卜需要 ${this.divinationInkCost} 点墨料，请先去城外探索。`;
@@ -9973,19 +10283,44 @@ this.drawCityWallsAndGate();
         this.storyDivinationAnswerIds.push(completedQuestion.answerId);
       }
     }
-    const completesStoryCeremony = !storyRound || this.storyDivinationRounds >= 3;
+    // 判定「当前占卜步骤是否为占卜链的最后一轮」：其后续步骤的 completeOn 不再是
+    // 'divination-completed'（即下一步是「起身查看裂纹」）即代表占卜环节结束。
+    // 这样单轮占卜章（第一章 first-divination）一次占卜即完成；三轮占卜章（divination-1/2/3）
+    // 在第三轮一次性把整条占卜链推到「起身查看裂纹」——不再依赖脆弱的 rounds>=3 计数。
+    const lastDivinationRound = storyRound
+      ? !this.storyController?.stepIsDivination(this.storyController?.currentStep()?.nextStepId)
+      : true;
     // 在 handle 推进步骤之前记录「刚完成的是哪一章的占卜」，用于线索标记与文案。
     const finishedChapterId = this.storyController?.currentStep()?.chapterId;
-    const storyAdvanced = completesStoryCeremony
-      ? (this.storyController?.handle({
-        type: 'divination-completed',
-        cardId: completedQuestion?.answerId,
-        npcId: completedQuestion?.villager,
-        correct: true,
-      }) ?? false)
+    const storyAdvanced = lastDivinationRound
+      ? (() => {
+        let advanced = false;
+        let guard = 0;
+        while (
+          this.storyController?.currentStep()?.completeOn === 'divination-completed'
+          && guard++ < 8
+        ) {
+          const ok = this.storyController.handle({
+            type: 'divination-completed',
+            cardId: completedQuestion?.answerId,
+            npcId: completedQuestion?.villager,
+            correct: true,
+          });
+          if (!ok) break;
+          advanced = true;
+          // 推完当前占卜步骤后，若后续已不再是占卜步骤，立即停止：
+          // 单轮章一次即完成，三轮章末轮走完整条占卜链（到「起身查看裂纹」）。
+          if (!this.storyController?.stepIsDivination(this.storyController?.currentStep()?.nextStepId)) break;
+        }
+        return advanced;
+      })()
       : false;
+    // 占卜结束若已触发章完成（currentChapterId 清空），兜底衔接下一章，
+    // 与对话完成路径一致，确保小人被传送到下一章落点、绝不停留在上一章。
+    this.advanceToNextChapterIfNeeded();
     // 各章占卜完成后的线索 flag 与「起身查看裂纹」文案：集中成映射，加章只改这里。
     const chapterClueFlags: Record<string, string> = {
+      [CHAPTER_ONE_ID]: 'clue.west-river-fragment',
       [CHAPTER_TWO_ID]: 'clue.upstream-missing',
       [CHAPTER_THREE_ID]: 'clue.forest-bone',
       [CHAPTER_FOUR_ID]: 'clue.escort-route',
@@ -9996,6 +10331,7 @@ this.drawCityWallsAndGate();
       [CHAPTER_NINE_ID]: 'clue.main-complete',
     };
     const chapterRiseTexts: Record<string, string> = {
+      [CHAPTER_ONE_ID]: '兆纹之外浮现出一道陌生裂纹，似乎正指向西侧河畔。请起身查看。',
       [CHAPTER_TWO_ID]: '兆纹之外浮现出一道陌生裂纹，似乎正指向逆流而上的河源。请起身查看。',
       [CHAPTER_THREE_ID]: '兆纹之外浮现出一道裂纹，竟越过河水，指向对岸幽深的山林。请起身查看。',
       [CHAPTER_FOUR_ID]: '兆纹之外浮现出一道裂纹，竟越过林线，指向山外热闹的护送道。请起身查看。',
@@ -10011,14 +10347,12 @@ this.drawCityWallsAndGate();
       this.storyController.addDestinyPower(1);
       this.audioManager.playSfx('chapter_clear');
     }
-    // handle 之后，若当前步骤仍是「占卜步骤」，说明还有下一轮，保持 overlay 自动续接；
-    // 否则（末轮）逼玩家起身查看裂纹。
-    const stillDivining = storyRound && !completesStoryCeremony
-      ? true
-      : this.isActiveDivinationStep();
+    // handle 之后，若当前步骤仍是「占卜步骤」且本轮不是占卜链末轮，说明还有下一轮，
+    // 保持 overlay 自动续接；否则（末轮）逼玩家起身查看裂纹。
+    const stillDivining = this.isActiveDivinationStep() && !lastDivinationRound;
     this.overlayRoot?.getChildByName('DivinationReviewPanel')?.destroy();
     if (this.divinationText?.isValid) {
-      this.divinationText.string = storyRound && !completesStoryCeremony
+      this.divinationText.string = stillDivining
         ? `第 ${this.storyDivinationRounds} 卜已记入兆纹。请留在占卜席，下一位村民马上前来（${3 - this.storyDivinationRounds} 卜未完成）。`
         : storyAdvanced
         ? ((finishedChapterId && chapterRiseTexts[finishedChapterId])
@@ -10031,7 +10365,7 @@ this.drawCityWallsAndGate();
     this.currentQuestion = null;
     this.currentDivinationCards = [];
     this.divinationStage = 'waiting';
-    this.queueTimer = storyRound && !completesStoryCeremony
+    this.queueTimer = stillDivining
       ? 1.15
       : storyAdvanced && !stillDivining ? 9999 : this.save.ink >= this.divinationInkCost ? 1.15 : 9999;
     this.updateRiseButtonState();
@@ -10406,6 +10740,10 @@ this.drawCityWallsAndGate();
   private finishExcavationLearning() {
     if (this.overlay !== 'excavationLearning' || this.excavationLearningStage !== 'detail') return;
     const card = this.excavationLearningCard;
+    // 学完即让承载该字的坑挖空并重生，继续产出下一个未收集字。
+    // 否则坑会永久停留在「已挖出待学」状态、不再刷新；royal/field 等区域坑位（10/20 个）
+    // 少于本章主线字数（章三 19 / 章八 44 等），坑不轮替就永远集不齐全部字，章节卡死。
+    const studiedSite = this.excavationLearningSite;
     this.overlay = 'none';
     this.excavationLearningStage = 'none';
     this.excavationLearningSite = null;
@@ -10419,6 +10757,14 @@ this.drawCityWallsAndGate();
       item.lessonStepId === finishLessonStepId && item.cardId === card?.id);
     if (expectedLesson && card) {
       this.storyController?.handle({ type: 'learning-completed', cardId: card.id, correct: true });
+    }
+    // 字已收入图鉴：让承载它的坑挖空并重置重生计时。下一帧 updateExcavationEffects
+    // 会把它移走并重新 roll 一个未收集字，保证有限的坑位能轮替覆盖本章所有主线字。
+    if (studiedSite) {
+      studiedSite.awaitingStudy = false;
+      studiedSite.active = false;
+      studiedSite.holeTimer = 0;
+      studiedSite.respawnTimer = 3;
     }
   }
 
@@ -10522,15 +10868,13 @@ this.drawCityWallsAndGate();
         ? { title: '第二章完成', detail: '河畔的计数碎甲已经重新回应你。' }
         : { title: '第一章完成', detail: '失语的甲骨已经重新回应你，第二章尚未开启。' };
     }
-    // The visible chapter progress is collection progress, not the internal
-    // position of the old linear dialogue script.  Free-main words are still
-    // required even though their obsolete per-word dialogue steps are skipped.
+    // 以引导字为可见进度口径：自由探索字不门控本章流程，只影响全盘收集。
     if (chapterId && stepId?.endsWith('fragment-awakens')) {
-      const progress = this.chapterMainProgress(chapterId);
+      const progress = this.chapterGuidedProgress(chapterId);
       if (progress.learned < progress.total) {
         return {
           title: '整理本章骨纹',
-          detail: `已挖到 ${progress.collected}/${progress.total}，已学 ${progress.learned}/${progress.total}。继续在本章区域挖掘并学习剩余主线字，收齐后即可完成章节挑战。`,
+          detail: `已挖到 ${progress.collected}/${progress.total}，已学 ${progress.learned}/${progress.total}。继续循金色箭头挖掘并学习剩余引导字，收齐后即可完成章节挑战。`,
         };
       }
     }
@@ -10624,12 +10968,15 @@ this.drawCityWallsAndGate();
 
     const completed = (snapshot?.completedChapterIds.indexOf(currentChapterId) ?? -1) >= 0;
     const stepId = snapshot?.currentStepId ?? null;
+    // 章节进度只按「必要引导字」计算：自由探索字计入全盘收集，但不门控本章完成，
+    // 避免玩家刚接章就看到 69% 或自由字没挖完永远到不了 85%。
+    const guided = this.chapterGuidedProgress(currentChapterId);
     const collection = this.chapterMainProgress(currentChapterId);
-    // 章节进度按「已挖到」的字计算（宝宝要求：进度根据挖字确定），
-    // 不再依赖是否已去图鉴学习；章节任务完成度由下方任务面板（step）呈现。
+    const storyRatio = this.storyController?.currentStepProgress(currentChapterId) ?? 0;
+    const guidedRatio = guided.collected / Math.max(1, guided.total);
     const chapterPercent = completed
       ? 100
-      : Math.round(collection.collected / Math.max(1, collection.total) * 100);
+      : Math.min(85, Math.round(guidedRatio * 65 + storyRatio * 20));
 
     // Keep every chapter-act title inside the 920 px panel: the label's left
     // edge is inset 36 px from the panel edge, regardless of its text length.
@@ -10646,7 +10993,6 @@ this.drawCityWallsAndGate();
     progressFill.fillColor = new Color(211, 151, 65); progressFill.roundRect(-progressWidth / 2, -6, progressWidth, 12, 6); progressFill.fill();
 
     const task = this.chapterTaskText(stepId, completed, currentChapterId);
-    const guided = this.chapterGuidedProgress(currentChapterId);
     this.drawWoodPanel(root, 'ChapterTaskPanel', 0, 68, 770, 126, 2, true);
     this.createUiLabel(root, 'ChapterTaskCaption', '当前任务', -300, 108, 140, 26, 15, new Color(119, 67, 37), 'left', 5);
     const taskTitleLabel = this.createUiLabel(root, 'ChapterTaskTitle', task.title, -10, 77, 660, 36, 20, new Color(84, 45, 28), 'left', 5);
@@ -10657,7 +11003,6 @@ this.drawCityWallsAndGate();
     this.createUiLabel(root, 'ChapterGlyphCaption', '本章碎甲文字（上下滑动查看）', -280, -20, 330, 30, 17, new Color(245, 211, 145), 'left');
     this.buildChapterGlyphScrollView(root, activeCards);
 
-    const chapterUnlocked = collection.collected;
     // 全盘收集：主线甲骨(250) + 甲骨拾遗(50) 合计已挖 / 总数，独立于当前章节。
     const excavatedCards = this.save.excavatedCardIds ?? [];
     const storyCollected = [...STORY_CARD_IDS].filter(id => excavatedCards.includes(id)).length;
@@ -10671,7 +11016,7 @@ this.drawCityWallsAndGate();
       0, -234, 760, 34, 16, new Color(247, 217, 154));
     summaryLabel.overflow = Label.Overflow.SHRINK;
     summaryLabel.enableWrapText = false;
-    this.createUiLabel(root, 'ChapterProgressHint', `本章全部 ${collection.total} 个主线字均需收集并学习后才能挑战；占卜前至少挖掘本章 ${Math.min(3, collection.total)} 字。`,
+    this.createUiLabel(root, 'ChapterProgressHint', `本章 ${guided.total} 个引导字集齐并学会后方可占卜；其余主线字与甲骨拾遗可在自由探索继续收集（计入全盘进度）。占卜前至少挖掘本章 ${Math.min(3, guided.total)} 字。`,
       0, -256, 760, 22, 13, new Color(207, 186, 148));
     const globalLabel = this.createUiLabel(root, 'ChapterGlobalCollection',
       `全盘甲骨收集 已挖${allCollected}/${allTotal}　主线 ${storyCollected}/${storyTotal} · 拾遗 ${supplementCollected}/${supplementTotal}`,
@@ -12003,6 +12348,13 @@ this.drawCityWallsAndGate();
       sprite.sizeMode = Sprite.SizeMode.CUSTOM;
       transform.setContentSize(renderWidth, renderHeight);
       if (fallback.node.isValid) fallback.node.active = false;
+    }, () => {
+      // 甲骨图缺失（如待补字尚未提供字形图）时回退显示现代字，避免空白字形。
+      if (node.isValid) node.active = false;
+      if (fallback.node.isValid) {
+        fallback.node.active = true;
+        fallback.string = card.glyph ?? card.modern ?? '';
+      }
     });
     return node;
   }
@@ -12013,7 +12365,7 @@ this.drawCityWallsAndGate();
     this.requestSpriteFrame(key, apply);
   }
 
-  private requestSpriteFrame(key: string, apply: (frame: SpriteFrame) => void) {
+  private requestSpriteFrame(key: string, apply: (frame: SpriteFrame) => void, onError?: () => void) {
     const cached = this.frameCache.get(key);
     if (cached) {
       apply(cached);
@@ -12023,15 +12375,24 @@ this.drawCityWallsAndGate();
     const waiting = this.frameWaiters.get(key);
     if (waiting) {
       waiting.push(apply);
+      if (onError) {
+        const errors = this.frameErrorWaiters.get(key) ?? [];
+        errors.push(onError);
+        this.frameErrorWaiters.set(key, errors);
+      }
       return;
     }
 
     this.frameWaiters.set(key, [apply]);
+    if (onError) this.frameErrorWaiters.set(key, [onError]);
     resources.load(key, SpriteFrame, (error, frame) => {
       const callbacks = this.frameWaiters.get(key) ?? [];
+      const errors = this.frameErrorWaiters.get(key) ?? [];
       this.frameWaiters.delete(key);
+      this.frameErrorWaiters.delete(key);
       if (error || !frame) {
         console.warn(`[YinXuCity] pixel resource failed: ${key}`, error);
+        errors.forEach(e => e());
         return;
       }
       frame.texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);

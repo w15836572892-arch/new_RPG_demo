@@ -340,14 +340,23 @@ const MODERN_MEANING_HINTS: Record<string, string> = {
   '一': '表示一个、开始或统一的数量概念', '二': '表示两个或成对', '三': '表示三这个数目', '四': '表示四这个数目', '五': '表示五这个数目', '六': '表示六这个数目', '七': '表示七这个数目', '八': '表示八这个数目', '九': '表示九这个数目', '十': '表示十这个数目', '百': '表示百这个数目', '千': '表示较大的数目', '万': '表示数量极多，后也成为数词单位'
 };
 
-function makeLesson(modern: string) {
+export function makeLesson(modern: string) {
   const gloss = MODERN_MEANING_HINTS[modern] ?? `表示与现代“${modern}”字相关的事物、动作或概念`;
   return {
     meaning: `“${modern}”${gloss}。在甲骨卜辞中，字义还需结合完整句子判断：它可能用于记事、询问、祭祀或说明当时的生活事务。`,
     evolution: '这张字形保留了甲骨书写的线条特征。与今天的楷书相比，早期字形通常更接近事物轮廓；同一个字在不同卜辞中也会有略微不同的写法。',
-    history: '商代王室把祭祀、天气、农事、出行、疾病等问题刻写在龟甲或兽骨上。通过这个字，可以把文字学习和商代社会生活联系起来。',
+      history: '商代王室把祭祀、天气、农事、出行、疾病等问题刻写在龟甲或兽骨上。通过这个字，可以把文字学习和商代社会生活联系起来。',
   };
 }
+
+// 全部 RAW_CATALOG 行的 modern→pinyin 映射（含「教学大纲」待补字与「图像已收录」字）。
+// 用于为 ChapterCharMap 中尚未手录卡面的待补字生成占位卡时填入拼音。
+export const RAW_CATALOG_PINYIN: ReadonlyMap<string, string> = new Map(
+  RAW_CATALOG.split('\n')
+    .filter(row => row.trim().length > 0)
+    .map(row => row.split('|'))
+    .map(([modern, pinyin]) => [modern, pinyin ?? ''] as [string, string]),
+);
 
 export const importedOracleCards: ImportedOracleCard[] = RAW_CATALOG.split('\n')
   .map(row => row.split('|'))
