@@ -54,6 +54,16 @@ export class StoryController {
     return chapter?.steps.find(step => step.id === this.state.currentStepId) ?? null;
   }
 
+  /** 当前章节剧情推进比例 0~1：当前步序号 / (总步数-1)。用于进度条“剧情进度”维度。 */
+  currentStepProgress(chapterId: string = this.state.currentChapterId): number {
+    const chapter = chapterId ? this.chapters.get(chapterId) : undefined;
+    if (!chapter) return 0;
+    if (chapter.steps.length <= 1) return 1;
+    const idx = chapter.steps.findIndex(step => step.id === this.state.currentStepId);
+    if (idx < 0) return 0;
+    return idx / (chapter.steps.length - 1);
+  }
+
   subscribe(listener: StoryListener) {
     this.listeners.add(listener);
     listener(this.snapshot(), this.currentStep());
@@ -128,6 +138,29 @@ export class StoryController {
   missingRequiredCards(chapterId = this.state.currentChapterId): string[] {
     const chapter = chapterId ? this.chapters.get(chapterId) : undefined;
     return (chapter?.requiredCardIds ?? []).filter(cardId => this.state.flags[`learned-card:${cardId}`] !== true);
+  }
+
+  /** 判断某步骤是否为「占卜步骤」（completeOn === 'divination-completed'）。用于占卜满轮判定。 */
+  stepIsDivination(stepId: string | null | undefined): boolean {
+    if (!stepId) return false;
+    for (const chapter of this.chapters.values()) {
+      const step = chapter.steps.find(s => s.id === stepId);
+      if (step) return step.completeOn === 'divination-completed';
+    }
+    return false;
+  }
+
+  /**
+   * 章末已走到末步（无下一跳）、却因「尚缺未学字」被 completeCurrentChapter 阻塞时，
+   * 玩家补齐本章全部字后调用此方法补判章完成，杜绝软锁。
+   * 仅当当前步骤已是末步（无 nextStepId）才允许补判——中途步骤一律 no-op。
+   */
+  recheckChapterCompletion(): boolean {
+    const chapterId = this.state.currentChapterId;
+    if (!chapterId) return false;
+    const step = this.currentStep();
+    if (step?.nextStepId) return false;
+    return this.completeCurrentChapter();
   }
 
   private completeCurrentChapter() {

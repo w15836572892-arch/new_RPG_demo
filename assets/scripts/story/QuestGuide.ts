@@ -20,6 +20,8 @@ export class QuestGuide {
   private readonly taskAnnouncementTitle: Label;
   private readonly taskAnnouncementDetail: Label;
   private objective: StoryObjective | null = null;
+  /** 最终目标（金色光环坑）坐标，与箭头下一航点分离：光环永远锁在目标坑上。 */
+  private ultimateTarget: Vec2 | null = null;
   /** Walkable waypoints supplied by the world controller for obstacle-aware guidance. */
   private navigationPath: Vec2[] = [];
   private elapsed = 0;
@@ -87,12 +89,15 @@ export class QuestGuide {
     this.hudRoot.active = false;
   }
 
-  setObjective(objective: StoryObjective | null) {
+  setObjective(objective: StoryObjective | null, ultimateTarget?: Vec2) {
     const previousKey = this.objective
       ? `${this.objective.title}|${this.objective.detail ?? ''}`
       : '';
     const nextKey = objective ? `${objective.title}|${objective.detail ?? ''}` : '';
     this.objective = objective;
+    this.ultimateTarget = ultimateTarget ?? (objective && objective.targetX !== undefined && objective.targetY !== undefined
+      ? new Vec2(objective.targetX, objective.targetY)
+      : null);
     this.navigationPath = [];
     this.elapsed = 0;
     if (objective && previousKey !== nextKey) this.showTaskAnnouncement(objective);
@@ -103,7 +108,10 @@ export class QuestGuide {
       this.arrowGraphics.clear();
       return;
     }
-    this.marker.setPosition(objective.targetX, objective.targetY, 120);
+    // marker（金色光环）永远画在最终目标坑上；箭头单独指向 navigationPath[0] / objective.target。
+    const markerX = this.ultimateTarget?.x ?? objective.targetX;
+    const markerY = this.ultimateTarget?.y ?? objective.targetY;
+    this.marker.setPosition(markerX, markerY, 120);
     this.marker.active = true;
     this.hudRoot.active = this.visible;
     this.objectiveLabel.string = objective.detail ? `${objective.title} · ${objective.detail}` : objective.title;
