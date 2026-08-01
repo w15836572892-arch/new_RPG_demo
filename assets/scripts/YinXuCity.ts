@@ -7,6 +7,7 @@ import {
   DebugMode,
   EventKeyboard,
   EventTouch,
+  Game,
   Graphics,
   game,
   input,
@@ -739,6 +740,9 @@ export class YinXuCity extends Component {
   private weatherRenderTimer = 0;
   private readonly saveKey = 'yinxu-city-save-v1';
   private readonly localSaveDatabase = new LocalSaveDatabase('yinxu-city-local-db', 'saves');
+  private readonly saveCheckpointInterval = 4;
+  private saveCheckpointElapsed = 0;
+  private readonly onApplicationHide = () => this.flushCitySave();
   private readonly divinationInkCost = 4;
   // 图鉴显示模式：false = 正式体验，只展示已挖掘/解锁的甲骨（未挖到的不进图鉴，不显示灰格）；
   // true = 仅供调试预览全集（所有字都标为已解锁）。它只影响图鉴展示，绝不把未解锁字写进存档。
@@ -1391,6 +1395,10 @@ export class YinXuCity extends Component {
 
   private async initializeGame() {
     this.save = await this.loadCitySave();
+    // Android emits EVENT_HIDE when the app is backgrounded or closed from a
+    // learning tablet. Flush before rendering so the first completed action is
+    // protected even if the process is immediately reclaimed by the OS.
+    game.on(Game.EVENT_HIDE, this.onApplicationHide, this);
     this.audioManager = GameAudioManager.ensure();
     this.audioManager.setMusicEnabled(this.save.musicOn);
     this.audioManager.setSfxEnabled(this.save.sfxOn);
@@ -1595,6 +1603,8 @@ export class YinXuCity extends Component {
   }
 
   onDestroy() {
+    this.flushCitySave();
+    game.off(Game.EVENT_HIDE, this.onApplicationHide, this);
     this.storyDialogue?.destroy();
     this.chapterBanner?.destroy();
     this.questGuide?.destroy();
@@ -1634,6 +1644,7 @@ export class YinXuCity extends Component {
 
     const movedDistance = Math.hypot(this.playerPos.x - oldX, this.playerPos.y - oldY);
     const moving = movedDistance > .01;
+    this.checkpointPlayerPosition(dt, moving);
     this.updatePlayerFootsteps(movedDistance, movementAllowed);
     this.updateTerrainElevationState();
     if (moving) this.playerMotion.set((this.playerPos.x - oldX) / movedDistance, (this.playerPos.y - oldY) / movedDistance);
@@ -9638,17 +9649,31 @@ this.drawCityWallsAndGate();
   }
 
   private persistCitySave() {
+    if (!this.save) return;
     if (this.regionTransitionManager) {
       this.save.currentRegionId = this.regionTransitionManager.currentRegionId;
       this.save.playerWorldPosition = { x: this.playerPos.x, y: this.playerPos.y };
       this.save.playerFacing = this.facing;
     }
+    this.saveCheckpointElapsed = 0;
     void this.localSaveDatabase.put(this.saveKey, this.save);
     try {
       sys.localStorage.setItem(this.saveKey, JSON.stringify(this.save));
     } catch (error) {
       console.warn('[YinXuCity] save data could not be written.', error);
     }
+  }
+
+  /** Periodically checkpoints walking progress, which previously only saved on transitions. */
+  private checkpointPlayerPosition(dt: number, moving: boolean) {
+    if (!moving || !this.save) return;
+    this.saveCheckpointElapsed += dt;
+    if (this.saveCheckpointElapsed >= this.saveCheckpointInterval) this.persistCitySave();
+  }
+
+  /** Kept synchronous at the storage boundary for safe Android lifecycle handling. */
+  private flushCitySave() {
+    if (this.save) this.persistCitySave();
   }
 
   private drawDivinationSeat() {
