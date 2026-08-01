@@ -102,6 +102,14 @@ export class StoryController {
     this.commit();
   }
 
+  /** 直接标记某张字卡已学会（不推进剧情步骤）。供自由探索字等无对应剧情步骤的学习场景使用。 */
+  markCardLearned(cardId: string) {
+    const key = `learned-card:${cardId}`;
+    if (this.state.flags[key] === true) return;
+    this.state.flags[key] = true;
+    this.commit();
+  }
+
   addDestinyPower(amount: number) {
     const safeAmount = Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : 0;
     if (safeAmount === 0) return;
@@ -148,6 +156,16 @@ export class StoryController {
       if (step) return step.completeOn === 'divination-completed';
     }
     return false;
+  }
+
+  /** 按 id 查询步骤定义（跨章全局查找），供占卜剩余轮数等链式计算使用。 */
+  stepById(stepId: string | null | undefined): StoryStepDefinition | null {
+    if (!stepId) return null;
+    for (const chapter of this.chapters.values()) {
+      const step = chapter.steps.find(s => s.id === stepId);
+      if (step) return step;
+    }
+    return null;
   }
 
   /**

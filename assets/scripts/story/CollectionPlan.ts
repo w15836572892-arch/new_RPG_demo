@@ -1,18 +1,16 @@
 import { CHAPTER_CHAR_PLANS, SUPPLEMENT_CHARS, ChapterCharPlan } from './ChapterCharMap';
 
 /**
- * The 300 target characters are intentionally split into three gameplay
- * layers. Only guided cards gate chapter completion; free-main and relic
- * cards are exploration rewards.
+ * 章节字表与进度口径说明（重要，避免与剧情步骤链错位）：
+ * 各章 ChapterX.ts 的步骤链把「本章全部主线字」都写成剧情线性强制的
+ * excavation/learning 步骤，且 fragment-awakens 始终位于全部挖掘步骤之后。
+ * 即当前每章并不存在独立的「自由探索」步骤——所有字都是剧情引导挖出。
+ * 因此「引导字」实际等同「本章全部主线字」，自由探索字(main-free)为空。
+ * 所有进度面板、门槛、对话里显示的字数，都以 CollectionPlan 的
+ * guidedCardIds（=本章实际主线字总数）为准，与步骤链/存档真实挖掘数一致，
+ * 不再使用写死的旧 GUIDED_COUNTS 错位数（如第二章旧写 4、实际 12）。
  */
 export type CharacterCollectionLayer = 'guided' | 'main-free' | 'relic';
-
-// 引导字（金圈箭头带路、门控章完成）= 独立的递增规律，从章一 3 起每章 +1。
-// 与每章主线「收集总字数」(5/12/19/26/26/32/38/44/48) 是两回事：引导字只取每章前 N 个，
-// 剩余 = 自由探索字(main-free)，靠玩家自行寻找、不引导、不门控章完成。
-// 第1章教学锁死 5 字（雨田水土地云），宝宝要求五字全引导，故首章引导数取到 5；
-// 其余章沿用「引导字金圈带路 + 自由字自行探索」的模板设计（自由字不门控章完成）。
-const GUIDED_COUNTS = [5, 4, 5, 6, 7, 8, 9, 10, 11] as const;
 
 export type ChapterCollectionPlan = {
   chapterId: string;
@@ -26,7 +24,9 @@ const cardIdFor = (char: { char: string; existingCardId: string | null }) =>
 
 function buildPlan(source: ChapterCharPlan, index: number): ChapterCollectionPlan {
   const cards = source.chars.map(cardIdFor);
-  const guidedCount = GUIDED_COUNTS[index];
+  // 引导字 = 本章实际主线字总数（步骤链已全部线性强制挖出，无独立自由探索步骤）。
+  // 由此 guidedCardIds 涵盖全章字、mainFreeCardIds 为空，进度/门槛/对话数字与真实挖掘一致。
+  const guidedCount = cards.length;
   return {
     chapterId: source.chapterId,
     guidedCardIds: cards.slice(0, guidedCount),
@@ -58,7 +58,7 @@ export function fixedGuidedCardIds(chapterId: string) {
   const guided = plans.reduce((total, plan) => total + plan.guidedCardIds.length, 0);
   const main = plans.reduce((total, plan) => total + plan.guidedCardIds.length + plan.mainFreeCardIds.length, 0);
   const relic = RELIC_CARD_IDS.length;
-  console.assert(guided === 65, `[CollectionPlan] guided count: ${guided}`);
+  console.assert(guided === 250, `[CollectionPlan] guided count: ${guided}`);
   console.assert(main === 250, `[CollectionPlan] main count: ${main}`);
   console.assert(relic === 50, `[CollectionPlan] relic count: ${relic}`);
 })();
